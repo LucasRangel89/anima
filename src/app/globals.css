@@ -1,0 +1,245 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-fraunces);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.75rem;
+  /* papel quente */
+  --background: oklch(0.982 0.005 85);
+  --foreground: oklch(0.26 0.015 55);
+  --card: oklch(0.998 0.002 85);
+  --card-foreground: oklch(0.26 0.015 55);
+  --popover: oklch(0.998 0.002 85);
+  --popover-foreground: oklch(0.26 0.015 55);
+  /* âmbar/bronze */
+  --primary: oklch(0.55 0.125 50);
+  --primary-foreground: oklch(0.985 0.005 85);
+  --secondary: oklch(0.955 0.01 75);
+  --secondary-foreground: oklch(0.32 0.02 55);
+  --muted: oklch(0.955 0.008 78);
+  --muted-foreground: oklch(0.5 0.02 60);
+  --accent: oklch(0.945 0.035 80);
+  --accent-foreground: oklch(0.38 0.08 50);
+  --destructive: oklch(0.577 0.215 27);
+  --border: oklch(0.905 0.012 72);
+  --input: oklch(0.905 0.012 72);
+  --ring: oklch(0.68 0.11 55);
+  --sidebar: oklch(0.985 0.004 85);
+  --sidebar-foreground: oklch(0.26 0.015 55);
+  --sidebar-primary: oklch(0.55 0.125 50);
+  --sidebar-primary-foreground: oklch(0.985 0.005 85);
+  --sidebar-accent: oklch(0.945 0.035 80);
+  --sidebar-accent-foreground: oklch(0.38 0.08 50);
+  --sidebar-border: oklch(0.905 0.012 72);
+  --sidebar-ring: oklch(0.68 0.11 55);
+}
+
+.dark {
+  /* carvão quente */
+  --background: oklch(0.175 0.008 55);
+  --foreground: oklch(0.93 0.008 80);
+  --card: oklch(0.215 0.01 55);
+  --card-foreground: oklch(0.93 0.008 80);
+  --popover: oklch(0.215 0.01 55);
+  --popover-foreground: oklch(0.93 0.008 80);
+  /* âmbar claro */
+  --primary: oklch(0.78 0.135 70);
+  --primary-foreground: oklch(0.2 0.02 55);
+  --secondary: oklch(0.26 0.012 55);
+  --secondary-foreground: oklch(0.93 0.008 80);
+  --muted: oklch(0.26 0.012 55);
+  --muted-foreground: oklch(0.68 0.015 70);
+  --accent: oklch(0.3 0.04 60);
+  --accent-foreground: oklch(0.88 0.06 75);
+  --destructive: oklch(0.68 0.19 25);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.6 0.1 60);
+  --sidebar: oklch(0.215 0.01 55);
+  --sidebar-foreground: oklch(0.93 0.008 80);
+  --sidebar-primary: oklch(0.78 0.135 70);
+  --sidebar-primary-foreground: oklch(0.2 0.02 55);
+  --sidebar-accent: oklch(0.3 0.04 60);
+  --sidebar-accent-foreground: oklch(0.88 0.06 75);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.6 0.1 60);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  ::selection {
+    background: oklch(0.85 0.09 75 / 0.6);
+  }
+}
+
+/* Textura sutil de papel no fundo do corpo (modo claro) */
+.paper-texture {
+  background-image: radial-gradient(
+      circle at 15% 20%,
+      oklch(0.93 0.03 80 / 0.35) 0%,
+      transparent 45%
+    ),
+    radial-gradient(circle at 85% 10%, oklch(0.94 0.025 60 / 0.3) 0%, transparent 40%),
+    radial-gradient(circle at 50% 95%, oklch(0.94 0.03 90 / 0.35) 0%, transparent 50%);
+}
+.dark .paper-texture {
+  background-image: radial-gradient(
+      circle at 15% 20%,
+      oklch(0.3 0.04 55 / 0.5) 0%,
+      transparent 45%
+    ),
+    radial-gradient(circle at 85% 10%, oklch(0.28 0.05 70 / 0.4) 0%, transparent 40%),
+    radial-gradient(circle at 50% 95%, oklch(0.3 0.03 50 / 0.5) 0%, transparent 50%);
+}
+
+/* Scrollbar discreta para listas longas */
+.nice-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.75 0.03 70) transparent;
+}
+.nice-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.nice-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.75 0.03 70);
+  border-radius: 9999px;
+}
+.dark .nice-scrollbar {
+  scrollbar-color: oklch(0.4 0.03 60) transparent;
+}
+.dark .nice-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.4 0.03 60);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Tipografia editorial para os relatórios em Markdown dos agentes */
+.anima-prose {
+  font-size: 0.9375rem;
+  line-height: 1.8;
+  color: var(--foreground);
+  opacity: 0.92;
+}
+.anima-prose > *:first-child {
+  margin-top: 0;
+}
+.anima-prose > *:last-child {
+  margin-bottom: 0;
+}
+.anima-prose h1,
+.anima-prose h2 {
+  @apply font-serif text-xl font-semibold tracking-tight;
+  margin-top: 1.75rem;
+  margin-bottom: 0.625rem;
+}
+.anima-prose h3 {
+  @apply font-serif text-lg font-semibold tracking-tight;
+  margin-top: 1.6rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+.anima-prose h4 {
+  @apply font-semibold text-[15px];
+  margin-top: 1.25rem;
+  margin-bottom: 0.375rem;
+}
+.anima-prose p {
+  margin-bottom: 0.875rem;
+}
+.anima-prose ul {
+  @apply list-disc space-y-1.5;
+  padding-left: 1.375rem;
+  margin: 0.625rem 0 1rem;
+}
+.anima-prose ol {
+  @apply list-decimal space-y-1.5;
+  padding-left: 1.5rem;
+  margin: 0.625rem 0 1rem;
+}
+.anima-prose li::marker {
+  color: var(--primary);
+}
+.anima-prose strong {
+  @apply font-semibold;
+  color: var(--foreground);
+}
+.anima-prose a {
+  @apply underline underline-offset-2;
+  color: var(--primary);
+  word-break: break-all;
+}
+.anima-prose blockquote {
+  @apply italic;
+  border-left: 3px solid var(--primary);
+  padding: 0.25rem 0 0.25rem 1rem;
+  margin: 1rem 0;
+  color: var(--muted-foreground);
+}
+.anima-prose hr {
+  margin: 1.75rem 0;
+  border-color: var(--border);
+}
+.anima-prose code {
+  @apply rounded bg-muted px-1.5 py-0.5 font-mono text-[0.8125rem];
+}
+.anima-prose pre {
+  @apply overflow-x-auto rounded-lg bg-muted p-3;
+}
+.anima-prose pre code {
+  @apply bg-transparent p-0;
+}
+.anima-prose table {
+  @apply w-full border-collapse text-sm;
+  margin: 0.75rem 0;
+}
+.anima-prose th {
+  @apply border bg-muted px-2.5 py-1.5 text-left font-semibold;
+}
+.anima-prose td {
+  @apply border px-2.5 py-1.5 align-top;
+}

@@ -1,0 +1,42 @@
+// ANIMA — Analisador Narrativo Inteligente Multiagente
+// Prisma schema (SQLite)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Uma execução completa do pipeline: Pesquisador -> 6 Especialistas -> Relatório
+model Analysis {
+  id             String       @id @default(cuid())
+  title          String
+  // researching | analyzing | completed | failed
+  status         String       @default("researching")
+  research       String? // dossiê factual em Markdown (saída do Agente Pesquisador)
+  // pending | running | done | failed
+  researchStatus String       @default("pending")
+  error          String?
+  durationMs     Int?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  results        AgentResult[]
+}
+
+// Resultado individual de cada agente especialista
+model AgentResult {
+  id         String   @id @default(cuid())
+  analysisId String
+  analysis   Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  // structural | characters | thematic | stylistic | psychological | cultural
+  agentKey   String
+  // pending | running | done | failed
+  status     String   @default("pending")
+  content    String? // análise em Markdown
+  error      String?
+  durationMs Int?
+  @@unique([analysisId, agentKey])
+}
