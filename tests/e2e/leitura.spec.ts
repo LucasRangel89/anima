@@ -2,15 +2,27 @@
 
 import { expect, test } from '@playwright/test';
 
+/** Erros de JavaScript e do console entram na saída do teste — sem isso, uma tela "morta" não diz por quê. */
+function watch(page: import('@playwright/test').Page) {
+  page.on('pageerror', (error) => console.log(`[pageerror] ${error.message}`));
+  page.on('console', (message) => {
+    if (message.type() === 'error') console.log(`[console.error] ${message.text()}`);
+  });
+}
+
 test('analisa uma obra, responde uma pergunta e baixa o cofre', async ({ page }) => {
+  watch(page);
   await page.goto('/');
 
   await expect(page).toHaveTitle(/ANIMA/);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
-  // O exemplo preenche o formulário; nada é enviado antes do clique em "Analisar obra".
-  await page.getByRole('button', { name: 'Dom Casmurro', exact: true }).click();
-  await expect(page.getByLabel('Obra', { exact: true })).toHaveValue('Dom Casmurro');
+  // O exemplo preenche o formulário (estado do React). Em modo dev a hidratação pode demorar: o clique é
+  // repetido até o campo refletir o estado, em vez de se perder no intervalo entre HTML e JavaScript.
+  await expect(async () => {
+    await page.getByRole('button', { name: 'Dom Casmurro', exact: true }).click();
+    await expect(page.getByLabel('Obra', { exact: true })).toHaveValue('Dom Casmurro', { timeout: 2_000 });
+  }).toPass({ timeout: 60_000 });
 
   await page.getByRole('button', { name: /Analisar obra/ }).click();
   await page.waitForURL(/\/analise\//);
@@ -37,14 +49,16 @@ test('analisa uma obra, responde uma pergunta e baixa o cofre', async ({ page })
 });
 
 test('tema alterna e o método abre pelo cabeçalho', async ({ page }) => {
+  watch(page);
   await page.goto('/');
   const html = page.locator('html');
   const before = await html.getAttribute('class');
 
-  await page.getByRole('button', { name: 'Alternar entre tema claro e escuro' }).click();
-  await expect
-    .poll(async () => html.getAttribute('class'), { timeout: 10_000 })
-    .not.toBe(before);
+  // Mesmo motivo do teste anterior: se o clique chegar antes da hidratação, ele se perde.
+  await expect(async () => {
+    await page.getByRole('button', { name: 'Alternar entre tema claro e escuro' }).click();
+    await expect.poll(async () => html.getAttribute('class'), { timeout: 2_000 }).not.toBe(before);
+  }).toPass({ timeout: 60_000 });
 
   await page.getByRole('link', { name: 'Método' }).click();
   await expect(page).toHaveURL(/\/metodo$/);

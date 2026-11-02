@@ -27,12 +27,25 @@ async function analisar(request: APIRequestContext, title: string): Promise<stri
   return id;
 }
 
+async function esperarSeletores(page: import('@playwright/test').Page) {
+  // A página busca as análises no cliente; se o JS atrasar, recarregar é mais honesto que esperar em silêncio.
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByLabel('Primeira obra')).toBeVisible({ timeout: 10_000 });
+  }).toPass({ timeout: 120_000 });
+}
+
 test('compara duas análises concluídas e guarda o resultado', async ({ page, request }) => {
+  page.on('pageerror', (error) => console.log(`[pageerror] ${error.message}`));
+  page.on('console', (message) => {
+    if (message.type() === 'error') console.log(`[console.error] ${message.text()}`);
+  });
   await analisar(request, 'Dom Casmurro');
   await analisar(request, 'Cem Anos de Solidão');
 
   await page.goto('/comparar');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('Comparar duas obras');
+  await esperarSeletores(page);
 
   await page.getByLabel('Primeira obra').selectOption({ index: 1 });
   await page.getByLabel('Segunda obra').selectOption({ index: 2 });

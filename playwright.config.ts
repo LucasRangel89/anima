@@ -31,6 +31,9 @@ export default defineConfig({
     url: `http://127.0.0.1:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 240_000,
+    // Log do servidor vai para o mesmo arquivo do teste: erro de compilação/hidratação fica visível.
+    stdout: 'pipe',
+    stderr: 'pipe',
     env: {
       LLM_PROVIDER: 'mock',
       ANIMA_STORE: 'memory',
