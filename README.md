@@ -131,22 +131,6 @@ A profundidade também define o teto de tokens de cada etapa (dossiê, especiali
 - **Exportação** — `.md`, cópia para a área de transferência, impressão/PDF e **cofre para o Obsidian**.
 - **Perguntas de acompanhamento** — ao fim do relatório, perguntas respondidas com o dossiê e as lentes já geradas (uma chamada ao modelo, sem nova pesquisa). As respostas ficam salvas na análise.
 
-### Avaliar a qualidade do que sai (`npm run eval`)
-
-Os testes provam que o pipeline funciona; não provam que o texto é bom. `npm run eval` roda **cinco obras de
-referência** (livro brasileiro, clássico traduzido, filme, série e jogo) num modelo real e escreve
-`eval-report.md`:
-
-| Mede | Como | O que fazer com o sinal |
-| --- | --- | --- |
-| **Forma** | palavras por lente na faixa da profundidade (±25%), seção `### Limites e verificações`, quantidade de † | lente curta demais costuma ser lente genérica |
-| **Referências** | cada `Autor, *Obra*, ano` e `Autor (ano)` conferido na Open Library e no Crossref | `duvidosa` pede conferência manual antes de citar |
-| **Cobertura** | o relatório tem dossiê, síntese e todas as lentes pedidas | buraco aqui é bug, não estilo |
-
-Nada reprova automaticamente: o relatório aponta e você decide. `--offline` pula a conferência de referências;
-`--mock` roda o encanamento sem custo (e o relatório diz que não vale como avaliação). Fora do `npm test` e do
-CI de propósito: gasta cota real.
-
 ### Comparar duas obras
 
 A rota `/comparar` lê dois relatórios prontos e escreve **uma** leitura cruzada, em quatro seções: o que
@@ -325,7 +309,7 @@ O `.env.example` traz blocos prontos para **Gemini** (endpoint OpenAI-compatíve
 ## Qualidade
 
 ```bash
-npm test          # 166 testes (node:test)
+npm test          # 182 testes (node:test)
 npm run typecheck # tsc --noEmit
 npm run lint      # eslint
 npm run check     # os três em sequência
@@ -343,6 +327,7 @@ Cobertura de testes: pipeline completo (mock), fila, cancelamento, retomada, fal
 - **`tests/fallback.test.ts`** sobe um servidor que devolve 429 com `Retry-After` de 15 minutos e verifica que a análise **termina com o modelo alternativo** (e que, sem alternativo, falha rápido e com mensagem clara — sem ficar horas esperando).
 - **`tests/eval.test.ts`** protege a própria régua: contagem de palavras, faixa por profundidade, seção "Limites e verificações" e a verificação de referências — que **nunca** transforma "sem rede" ou "outro autor com o mesmo ano" em "confirmada".
 - **`tests/eval.test.ts`** cobre a régua de qualidade: contagem de palavras, seção obrigatória, marca †, extração de referências nos dois formatos e conferência contra Open Library/Crossref com respostas simuladas — inclusive o caso em que a base está fora do ar, que **nunca** vira "confirmada".
+- **`tests/oficina.test.ts`** cobre o modo manual: os prompts levam a obra, o recorte e o dossiê; a separação das oito seções tolera numeração, caixa e acento; a régua aponta lente curta, seção ausente e lente que não voltou; o `.zip` gerado é um zip de verdade.
 - **e2e com Playwright** (`tests/e2e/`): navegador de verdade percorrendo o caminho principal — formulário, relatório, pergunta de acompanhamento, download do cofre Obsidian, tema, `/comparar` (gerar, recarregar, baixar e remover). Roda no CI (`npm run e2e` localmente), com provedor mock e store em memória.
 - **CI no GitHub Actions** (`.github/workflows/ci.yml`): tipos, lint, testes com o contrato do Prisma rodando de verdade, auditoria de UI, build e **e2e** — a cada push e pull request.
 
@@ -350,7 +335,7 @@ Cobertura de testes: pipeline completo (mock), fila, cancelamento, retomada, fal
 
 `npm test` prova que o pipeline funciona; não prova que a prosa é boa. `npm run eval` roda **cinco obras de
 referência** (livro brasileiro, romance estrangeiro, filme, série, jogo) no modelo que você configurou e
-escreve `eval/relatorio.md`:
+escreve `eval-report.md`:
 
 | Verificação | O que olha |
 | --- | --- |
@@ -362,14 +347,22 @@ Nada disso reprova automaticamente — o relatório sinaliza, você decide. Sem 
 `nao_verificada` (jamais "confirmadas" por omissão). Custa chamadas reais: fica fora de `npm test` e fora do CI,
 e `npm run eval -- --mock` só serve para conferir o encanamento.
 
-### Site publicado (apresentação)
+### No navegador, sem instalar: a oficina
 
-O repositório publica uma **página de apresentação** em <https://lucasrangel89.github.io/anima/>, gerada por
-`npm run site:build` a partir dos mesmos dados do produto (lentes, profundidades, fontes) e enviada pelo
-workflow `.github/workflows/pages.yml`.
+O repositório publica duas coisas em <https://lucasrangel89.github.io/anima/>: a **apresentação** e a
+**oficina** (`oficina.html`), ambas geradas por `npm run site:build` e enviadas pelo workflow
+`.github/workflows/pages.yml`.
 
-Ela **não executa o aplicativo**: o ANIMA precisa de um processo Node para falar com o modelo e manter a
-fila. GitHub Pages serve apenas arquivos estáticos. Para analisar obras de qualquer aparelho, veja
+A oficina é o modo manual, para quem não quer terminal nem chave de API:
+
+1. ela monta os **mesmos prompts** do app (pesquisador + oito lentes + síntese), a partir de `src/lib/anima/prompts.ts`;
+2. você cola cada prompt no chat que já usa e traz as respostas de volta;
+3. a oficina separa as oito seções pelos títulos, confere a **forma** (mesma régua do `npm run eval`) e
+   exporta `.md` ou o cofre do Obsidian.
+
+Nada sai do navegador: o histórico fica em `localStorage`, e o site é **instalável** (manifesto + service
+worker) para abrir na tela inicial do celular. O que ela **não** faz: coletar fontes e conferir referências
+automaticamente — para isso o app completo precisa de um processo Node, descrito em
 [`docs/PUBLICAR.md`](docs/PUBLICAR.md).
 
 ### Publicar e usar de qualquer aparelho

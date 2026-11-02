@@ -8,6 +8,7 @@ Foco: **qualidade mensurável (Fase 2) e uso pessoal (Fase 3)**.
 
 ### Adicionado
 
+- **Oficina sem instalar** (`oficina.html`, publicada no Pages): modo manual que monta os mesmos prompts do app (dossiê, oito lentes, síntese) no navegador, recebe o texto colado do chat, separa as oito seções pelos títulos, confere a forma e exporta `.md`/cofre Obsidian. Sem chave, sem servidor; histórico em `localStorage`, instalável como PWA e funcional offline. Não coleta fontes nem confere referências — isso continua exigindo o app completo.
 - **Avaliação de qualidade** (`npm run eval`, `src/lib/anima/eval.ts`): cinco obras de referência rodadas num modelo real, com contagem de palavras por lente, checagem da seção "Limites e verificações", contagem de † e conferência de cada referência `Autor, *Obra*, ano` / `Autor (ano)` contra Open Library e Crossref. Relatório em `eval-report.md`; nada reprova automaticamente, e base fora do ar é "não verificada" (nunca "confirmada").
 - **e2e verde no CI**: os três cenários de navegador (formulário → resposta → download, tema e `/metodo`, comparação com histórico e remoção) passaram a rodar sobre build de produção, com seletores sem ambiguidade.
 - **Limites de uso** (`ANIMA_RATE_LIMIT_ANALYSES`, `ANIMA_RATE_LIMIT_EXTRA`, `ANIMA_RATE_LIMIT=off`): janela deslizante em memória que responde `429` com `Retry-After` em análises, perguntas e comparações. Defaults: 20 e 120 por hora, por processo.
