@@ -7,7 +7,10 @@ import type {
   AnalysisRow,
   AnalysisStore,
   AnalysisSummaryRow,
+  ComparisonPatch,
+  ComparisonRow,
   CreateAnalysisInput,
+  CreateComparisonInput,
   ListOptions,
   StatusFilter,
 } from './store';
@@ -32,7 +35,9 @@ function matchesStatus(status: string, filter: StatusFilter | undefined): boolea
 
 export function createMemoryStore(): AnalysisStore {
   const rows = new Map<string, AnalysisRow>();
+  const comparisons = new Map<string, ComparisonRow>();
   const clone = (row: AnalysisRow): AnalysisRow => structuredClone(row);
+  const cloneComparison = (row: ComparisonRow): ComparisonRow => structuredClone(row);
 
   return {
     async create(input: CreateAnalysisInput) {
@@ -143,6 +148,51 @@ export function createMemoryStore(): AnalysisStore {
         )
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
       return match ? clone(match) : null;
+    },
+
+    async createComparison(input: CreateComparisonInput) {
+      const now = new Date();
+      const row: ComparisonRow = {
+        id: `cmp_${now.getTime().toString(36)}_${(++counter).toString(36)}`,
+        leftId: input.leftId,
+        rightId: input.rightId,
+        leftTitle: input.leftTitle,
+        rightTitle: input.rightTitle,
+        status: 'running',
+        content: null,
+        error: null,
+        model: null,
+        durationMs: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      comparisons.set(row.id, row);
+      return cloneComparison(row);
+    },
+
+    async getComparison(id) {
+      const row = comparisons.get(id);
+      return row ? cloneComparison(row) : null;
+    },
+
+    async listComparisons(limit) {
+      return [...comparisons.values()]
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, limit)
+        .map(cloneComparison);
+    },
+
+    async updateComparison(id: string, patch: ComparisonPatch) {
+      const row = comparisons.get(id);
+      if (!row) return;
+      for (const [key, value] of Object.entries(patch)) {
+        if (value !== undefined) (row as unknown as Record<string, unknown>)[key] = value;
+      }
+      row.updatedAt = new Date();
+    },
+
+    async deleteComparison(id) {
+      return comparisons.delete(id);
     },
   };
 }

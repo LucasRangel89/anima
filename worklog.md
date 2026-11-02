@@ -271,3 +271,39 @@ de rede (429, fallback, resposta vazia) e da rota (validação, 404, 409, teto, 
   está provado com o mock e com LLM falso controlado.
 - Interface clicada em navegador: segue sem navegador executável aqui; o que dá para provar sem ele (handler,
   estados, persistência) está provado.
+
+---
+
+## Fase 3, item 3 — comparar duas obras
+
+**Plano (5 linhas, antes de começar).** (1) comparação como entidade própria, não disfarçada de análise;
+(2) uma chamada só, com dossiê + síntese de cada lado sob orçamento de contexto; (3) página `/comparar` com
+histórico; (4) sem fila e sem lentes — leitura cruzada, não nova bateria; (5) testes de prompt, de store
+(memória e Prisma) e de rota.
+
+**O que foi construído**
+
+- `src/lib/anima/comparison.ts`: contexto das duas obras (dossiê + síntese, **sem** as oito lentes), prompt com
+  quatro seções e regra explícita contra invenção, uma chamada com retry/fallback, DTO.
+- `Comparison` no schema (sem chave estrangeira de propósito: títulos gravados fazem a comparação sobreviver
+  ao sumiço de uma análise) + métodos no contrato do store, nas duas implementações.
+- `POST/GET /api/comparisons` e `GET/DELETE /api/comparisons/[id]`: validação (ids diferentes, existentes,
+  concluídas), 404, 409, 429 e 502 com mensagens próprias. Falha do modelo marca o registro como `failed` em
+  vez de sumir.
+- `/comparar`: escolha de duas obras, estado de espera honesto ("uma chamada ao modelo…"), histórico com
+  Markdown, download e remoção. Link "Comparar" no cabeçalho.
+- `src/lib/anima/llm-call.ts`: política de retry/timeout/fallback extraída e compartilhada por perguntas e
+  comparações — antes só o pipeline tinha essa política.
+
+**Verificado**
+
+- **12 testes novos**: 11 em `tests/comparison.test.ts` (contexto por lado, redução sob orçamento, seções do
+  prompt, resposta vazia, fallback em 429, rota 201/400/404/409, listagem, GET por id, DELETE, sobrevivência
+  ao apagamento de uma análise) e 1 caso de contrato da comparação em `tests/store-contract.test.ts`, que roda
+  também contra o Prisma no CI.
+- Suíte completa: **166 testes (165 passam, 1 pulado — Prisma local)**; typecheck e lint limpos.
+
+**Não verificado**
+
+- Comparação gerada por modelo real e a página clicada em navegador: mesma limitação de rede/ambiente dos
+  itens anteriores.

@@ -131,6 +131,18 @@ A profundidade também define o teto de tokens de cada etapa (dossiê, especiali
 - **Exportação** — `.md`, cópia para a área de transferência, impressão/PDF e **cofre para o Obsidian**.
 - **Perguntas de acompanhamento** — ao fim do relatório, perguntas respondidas com o dossiê e as lentes já geradas (uma chamada ao modelo, sem nova pesquisa). As respostas ficam salvas na análise.
 
+### Comparar duas obras
+
+A rota `/comparar` lê dois relatórios prontos e escreve **uma** leitura cruzada, em quatro seções: o que
+aproxima, o que separa, o que uma ilumina na outra e o veredito. Usa dossiê e síntese de cada análise — não
+refaz o pipeline nem gasta oito lentes por obra.
+
+- Comparação é registro próprio (`Comparison`), com histórico, download `.md` e remoção.
+- Títulos ficam gravados no registro: se uma das análises for apagada, a comparação continua legível.
+- Mesmo regime de contexto do resto: o material dos dois lados é reduzido de forma determinística para caber
+  em `LLM_CONTEXT_TOKENS`, sem chamada extra para resumir.
+- Custo: **uma** chamada ao modelo, com retry em 429 e `LLM_FALLBACK_MODEL`.
+
 ### Perguntas de acompanhamento
 
 Depois de ler, a pergunta natural é “e daí?”. A caixa ao fim do relatório responde com o **material já pago** —
@@ -171,6 +183,7 @@ e nomes de arquivo são limpos do que o Windows e o próprio Obsidian recusam (`
 | --- | --- |
 | `/` | Formulário (obra, recorte, lentes, profundidade, fontes), histórico com filtros e painel de especialistas |
 | `/analise/[id]` | Monitor ao vivo (progresso, fila, cancelar) e relatório com sumário, scrollspy, retry por lente |
+| `/comparar` | Leitura cruzada de duas análises concluídas, com histórico e download em Markdown |
 | `/metodo` | Princípios de rigor, fluxo, fontes, profundidades, referenciais de cada especialista e limites |
 
 Acessibilidade: navegação por teclado, `aria-live` no progresso, contrastes e tema claro/escuro, sumário com `aria-current` e impressão sem elementos de interface.
@@ -293,7 +306,7 @@ O `.env.example` traz blocos prontos para **Gemini** (endpoint OpenAI-compatíve
 ## Qualidade
 
 ```bash
-npm test          # 154 testes (node:test)
+npm test          # 166 testes (node:test)
 npm run typecheck # tsc --noEmit
 npm run lint      # eslint
 npm run check     # os três em sequência

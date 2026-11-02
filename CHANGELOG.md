@@ -8,6 +8,7 @@ Foco: **qualidade mensurável (Fase 2) e uso pessoal (Fase 3)**.
 
 ### Adicionado
 
+- **Comparar duas obras** (`/comparar`): leitura cruzada de duas análises concluídas em uma única chamada (dossiê + síntese de cada lado), com registro próprio, histórico, download em Markdown e remoção. Títulos gravados no registro — apagar uma análise não apaga a comparação.
 - **Perguntas de acompanhamento**: caixa ao fim do relatório que responde perguntas usando o dossiê e as lentes já geradas, com sugestões derivadas do que a análise cobriu. Uma chamada por pergunta, com retry e `LLM_FALLBACK_MODEL`; respostas salvas em `followUps` (JSON), teto de 30, remoção pela interface.
 - **Exportação para o Obsidian**: um `.zip` com índice, dossiê e uma nota por lente, ligadas por `[[wikilinks]]` e com frontmatter (`tags`, `obra`, `lente`, `papel`, `data`, `modelo`). Zip escrito no próprio projeto (`src/lib/anima/zip.ts`, método store, sem dependência), nomes de arquivo saneados e acentos preservados.
 - **`npm run eval`**: roda cinco obras de referência (livro brasileiro, romance estrangeiro, filme, série, jogo) contra o modelo configurado e gera `eval/relatorio.md` com forma (faixa de palavras por profundidade, seção "Limites e verificações", marcadores †), cobertura e referências conferidas na Open Library e no Crossref. Fica **fora** do `npm test` e do CI porque custa chamadas; `--mock` ensaia o encanamento sem valer como medida.

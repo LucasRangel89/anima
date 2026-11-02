@@ -100,6 +100,17 @@ export const followUpSchema = z.object({
     .refine((v) => v.length <= 500, { message: 'A pergunta é longa demais (máximo 500 caracteres).' }),
 });
 
+/** Comparação: duas análises diferentes, por id. */
+export const comparisonSchema = z
+  .object({
+    leftId: z.string({ error: 'Escolha a primeira análise.' }).min(1, 'Escolha a primeira análise.').max(64),
+    rightId: z.string({ error: 'Escolha a segunda análise.' }).min(1, 'Escolha a segunda análise.').max(64),
+  })
+  .refine((data) => data.leftId !== data.rightId, {
+    message: 'Escolha duas análises diferentes.',
+    path: ['rightId'],
+  });
+
 export const retrySchema = z.object({
   agentKeys: z.array(z.enum(AGENT_KEYS)).max(AGENT_KEYS.length).optional(),
   research: z.boolean().optional(),

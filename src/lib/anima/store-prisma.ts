@@ -1,7 +1,7 @@
 // ANIMA — persistência com Prisma + SQLite (produção).
 
 import { db } from '@/lib/db';
-import type { AnalysisRow, AnalysisStore, AnalysisSummaryRow } from './store';
+import type { AnalysisRow, AnalysisStore, AnalysisSummaryRow, ComparisonRow } from './store';
 import { AGENT_KEYS, type WorkKind } from './types';
 
 const ACTIVE_STATUSES = ['queued', 'researching', 'analyzing', 'synthesizing'];
@@ -132,5 +132,37 @@ export const prismaStore: AnalysisStore = {
     });
     const match = candidates.find((r) => normalize(r.title) === normalize(title));
     return match ? (withOrderedResults(match) as AnalysisRow) : null;
+  },
+
+  async createComparison(input) {
+    const row = await db.comparison.create({
+      data: {
+        leftId: input.leftId,
+        rightId: input.rightId,
+        leftTitle: input.leftTitle,
+        rightTitle: input.rightTitle,
+        status: 'running',
+      },
+    });
+    return row as ComparisonRow;
+  },
+
+  async getComparison(id) {
+    const row = await db.comparison.findUnique({ where: { id } });
+    return row ? (row as ComparisonRow) : null;
+  },
+
+  async listComparisons(limit) {
+    const rows = await db.comparison.findMany({ orderBy: { createdAt: 'desc' }, take: limit });
+    return rows as ComparisonRow[];
+  },
+
+  async updateComparison(id, patch) {
+    await db.comparison.updateMany({ where: { id }, data: patch });
+  },
+
+  async deleteComparison(id) {
+    const result = await db.comparison.deleteMany({ where: { id } });
+    return result.count > 0;
   },
 };

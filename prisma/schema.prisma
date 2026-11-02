@@ -58,3 +58,23 @@ model AgentResult {
 
   @@unique([analysisId, agentKey])
 }
+
+// Leitura cruzada de duas análises concluídas. Sem relação de chave estrangeira de propósito: se uma das
+// análises for apagada, a comparação continua legível (os títulos ficam gravados aqui).
+model Comparison {
+  id        String   @id @default(cuid())
+  leftId    String
+  rightId   String
+  leftTitle String
+  rightTitle String
+  // running | completed | failed
+  status    String   @default("running")
+  content   String? // comparação em Markdown
+  error     String?
+  model     String?
+  durationMs Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}

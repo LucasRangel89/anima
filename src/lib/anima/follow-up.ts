@@ -5,13 +5,12 @@
 // pesquisa, sem nova rodada de lentes. O que o material não cobre, a resposta deve dizer, não inventar.
 
 import { fitTogether, contextLimit, estimateTokens, shrink } from './budget';
-import type { LLM, LLMCompletion, LLMUsage } from './llm';
-import { LLMError, isFatalLLMError, isRateLimitError } from './llm';
+import type { LLM, LLMUsage } from './llm';
+import { callWithRetry } from './llm-call';
 import { AGENTS } from './agent-meta';
 
 export { suggestedQuestions } from './follow-up-suggestions';
 import { WORK_KIND_LABELS, type AnalysisDTO, type FollowUpDTO } from './types';
-import { isAbortError, retry, withTimeout } from './async-utils';
 
 export const MAX_QUESTION_CHARS = 500;
 export const MAX_FOLLOW_UPS = 30;
@@ -122,33 +121,18 @@ export async function answerFollowUp({
     user = shrunk.text;
   }
 
-  const fallbackModel = (env.LLM_FALLBACK_MODEL ?? '').trim();
-  const request = { system, user, maxTokens: MAX_ANSWER_TOKENS, temperature: 0.5, signal, label: 'pergunta' };
-
-  const attempt = (target: LLM, attempts: number) =>
-    retry(() => withTimeout((inner) => target.complete({ ...request, signal: inner }), timeoutMs, 'pergunta', signal), {
-      attempts,
-      shouldRetry: (error) => !isFatalLLMError(error) && !isAbortError(error) && !signal?.aborted,
-      delayMs: (error, n) => (isRateLimitError(error) ? (error instanceof LLMError && error.retryAfterMs) || 6_000 * n : 1_200 * n),
-    });
-
-  let result: LLMCompletion;
-  let model = llm.model;
-  try {
-    result = await attempt(llm, 2);
-  } catch (error) {
-    const alternative = fallbackModel && isRateLimitError(error) && !signal?.aborted ? llm.withModel?.(fallbackModel) : undefined;
-    if (!alternative) throw error;
-    result = await attempt(alternative, 1);
-    model = alternative.model;
-  }
+  const result = await callWithRetry(
+    llm,
+    { system, user, maxTokens: MAX_ANSWER_TOKENS, temperature: 0.5 },
+    { timeoutMs, signal, env, label: 'pergunta' }
+  );
 
   const answer = result.text.trim();
   if (!answer) throw new Error('O modelo devolveu uma resposta vazia.');
 
   return {
     answer,
-    model,
+    model: result.model,
     durationMs: Date.now() - started,
     usage: result.usage,
     contextTrimmed: trimmed,
