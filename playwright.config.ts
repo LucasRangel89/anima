@@ -38,6 +38,7 @@ export default defineConfig({
       LLM_PROVIDER: 'mock',
       ANIMA_STORE: 'memory',
       ANIMA_RATE_LIMIT: 'off',
+      DATABASE_URL: 'file:./e2e.db',
       NEXT_TELEMETRY_DISABLED: '1',
       MOCK_DELAY_MS: '20',
     },

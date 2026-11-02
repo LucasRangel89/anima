@@ -24,8 +24,21 @@ test('analisa uma obra, responde uma pergunta e baixa o cofre', async ({ page })
     await expect(page.getByLabel('Obra', { exact: true })).toHaveValue('Dom Casmurro', { timeout: 2_000 });
   }).toPass({ timeout: 60_000 });
 
-  await page.getByRole('button', { name: /Analisar obra/ }).click();
-  await page.waitForURL(/\/analise\//);
+  // Diagnóstico: se o servidor recusar, a mensagem dele precisa aparecer na falha do teste.
+  const status = await (await page.request.get('/api/status')).text();
+  console.log(`[api/status] ${status.slice(0, 300)}`);
+
+  const [resposta] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/analyses') && r.request().method() === 'POST', {
+      timeout: 120_000,
+    }),
+    page.getByRole('button', { name: /Analisar obra/ }).click(),
+  ]);
+  const corpo = await resposta.text();
+  console.log(`[POST /api/analyses] ${resposta.status()} ${corpo.slice(0, 400)}`);
+  expect(resposta.ok(), `POST /api/analyses → ${resposta.status()}: ${corpo.slice(0, 400)}`).toBeTruthy();
+
+  await page.waitForURL(/\/analise\//, { timeout: 120_000 });
 
   // O relatório abre com o título; a conclusão é sinalizada pela caixa de perguntas, que só existe no fim.
   await expect(page.getByRole('heading', { name: 'Dom Casmurro', level: 1 })).toBeVisible();
