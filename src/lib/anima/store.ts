@@ -15,6 +15,8 @@ export interface AnalysisRow {
   id: string;
   title: string;
   hint: string | null;
+  /** Recorte pedido pelo usuário (capítulo, temporada, personagem…) */
+  focus: string | null;
   kind: string;
   depth: string;
   status: string;
@@ -22,6 +24,8 @@ export interface AnalysisRow {
   researchStatus: string;
   /** JSON de SourceDTO[] */
   sources: string | null;
+  /** JSON de UserSourceInput[] enviados no formulário */
+  userSources: string | null;
   synthesis: string | null;
   synthesisStatus: string;
   error: string | null;
@@ -36,20 +40,28 @@ export interface AnalysisSummaryRow {
   id: string;
   title: string;
   hint: string | null;
+  focus: string | null;
   kind: string;
   depth: string;
   status: string;
+  researchStatus: string;
+  synthesisStatus: string;
   createdAt: Date;
   durationMs: number | null;
   doneAgents: number;
+  totalAgents: number;
 }
 
 export interface CreateAnalysisInput {
   title: string;
   hint: string | null;
+  focus: string | null;
   kind: WorkKind;
   depth: Depth;
+  /** Lentes selecionadas (subconjunto de AGENT_KEYS) */
   agentKeys: readonly AgentKey[];
+  /** JSON de UserSourceInput[]; null quando não há fontes do usuário */
+  userSources: string | null;
   model: string | null;
 }
 
@@ -72,15 +84,30 @@ export interface AgentPatch {
   durationMs?: number | null;
 }
 
+export type StatusFilter = 'all' | 'active' | 'completed' | 'failed' | 'interrupted';
+
+export interface ListOptions {
+  limit: number;
+  status?: StatusFilter;
+  kind?: WorkKind | 'all';
+}
+
 export interface AnalysisStore {
   create(input: CreateAnalysisInput): Promise<AnalysisRow>;
   get(id: string): Promise<AnalysisRow | null>;
-  list(limit: number): Promise<AnalysisSummaryRow[]>;
-  /** Análises em andamento (researching | analyzing | synthesizing). */
+  list(options: ListOptions): Promise<AnalysisSummaryRow[]>;
+  /** Análises que ainda vão mudar de estado sem intervenção (inclui a fila). */
   listActive(): Promise<Array<{ id: string; updatedAt: Date }>>;
   update(id: string, patch: AnalysisPatch): Promise<void>;
   /** Cria a linha do agente se ainda não existir (análises antigas). */
   updateAgent(id: string, agentKey: AgentKey, patch: AgentPatch): Promise<void>;
   delete(id: string): Promise<boolean>;
-  findLatestCompleted(title: string, kind: WorkKind, depth: Depth, hint: string | null): Promise<AnalysisRow | null>;
+  /** Análise concluída equivalente, para reaproveitar sem novo custo de API. */
+  findLatestCompleted(
+    title: string,
+    kind: WorkKind,
+    depth: Depth,
+    hint: string | null,
+    focus: string | null
+  ): Promise<AnalysisRow | null>;
 }

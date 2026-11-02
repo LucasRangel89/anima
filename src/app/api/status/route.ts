@@ -1,7 +1,7 @@
-// ANIMA — API: estado de configuração (provedor de LLM, busca) para a UI avisar o usuário.
+// ANIMA — API: estado de configuração (provedor de LLM, fontes) e ocupação da fila.
 
 import { NextResponse } from 'next/server';
-import { getSystemStatus } from '@/lib/anima/llm';
+import { getSystemStatus } from '@/lib/anima/status';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

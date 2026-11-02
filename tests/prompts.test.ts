@@ -1,7 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEPTH_CONFIG, getSpecialistPrompt, getSynthesisPrompt } from '../src/lib/anima/prompts';
-import { AGENT_KEYS } from '../src/lib/anima/types';
+import {
+  DEPTH_CONFIG,
+  buildResearcherUserMessage,
+  buildSpecialistUserMessage,
+  buildSynthesisUserMessage,
+  getSpecialistPrompt,
+  getSynthesisPrompt,
+} from '../src/lib/anima/prompts';
+import { AGENT_KEYS, DEPTHS, DEPTH_LABELS } from '../src/lib/anima/types';
 import { AGENTS } from '../src/lib/anima/agent-meta';
 
 test('todo especialista tem prompt completo, com formato e segurança', () => {
@@ -15,11 +22,31 @@ test('todo especialista tem prompt completo, com formato e segurança', () => {
   }
 });
 
-test('a profundidade altera a faixa de palavras', () => {
-  const std = getSpecialistPrompt('thematic', { depth: 'standard', kind: 'film' });
-  const deep = getSpecialistPrompt('thematic', { depth: 'deep', kind: 'film' });
-  assert.ok(std.includes(`${DEPTH_CONFIG.standard.minWords} e ${DEPTH_CONFIG.standard.maxWords}`));
-  assert.ok(deep.includes(`${DEPTH_CONFIG.deep.minWords} e ${DEPTH_CONFIG.deep.maxWords}`));
+test('a profundidade altera a faixa de palavras e a calibragem', () => {
+  for (const depth of DEPTHS) {
+    const p = getSpecialistPrompt('thematic', { depth, kind: 'film' });
+    assert.ok(p.includes(`${DEPTH_CONFIG[depth].minWords} e ${DEPTH_CONFIG[depth].maxWords}`), depth);
+    assert.ok(p.includes(DEPTH_CONFIG[depth].calibration), `${depth} sem calibragem`);
+  }
+  const order = DEPTHS.map((d) => DEPTH_CONFIG[d].maxTokens);
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'profundidades devem crescer em tokens');
+  // a faixa anunciada na UI precisa ser a mesma do prompt
+  for (const depth of DEPTHS) {
+    assert.deepEqual(DEPTH_LABELS[depth].words, [DEPTH_CONFIG[depth].minWords, DEPTH_CONFIG[depth].maxWords]);
+  }
+});
+
+test('o recorte do usuário entra nas mensagens de pesquisa, análise e síntese', () => {
+  const focus = 'temporada 4';
+  for (const msg of [
+    buildResearcherUserMessage('Breaking Bad', null, 'series', '<fonte/>', focus),
+    buildSpecialistUserMessage('Breaking Bad', null, 'series', 'dossiê', focus),
+    buildSynthesisUserMessage('Breaking Bad', null, 'series', 'dossiê', [], [], focus),
+  ]) {
+    assert.ok(msg.includes(`Recorte pedido pelo usuário: ${focus}`), msg.slice(0, 80));
+  }
+  // sem recorte, nada é inventado
+  assert.equal(buildSpecialistUserMessage('X', null, 'book', 'd').includes('Recorte'), false);
 });
 
 test('o meio da obra adapta o prompt', () => {

@@ -7,6 +7,18 @@ export class TimeoutError extends Error {
   }
 }
 
+/** A operação foi cancelada por quem chamou (ex.: usuário cancelou a análise). */
+export class AbortedError extends Error {
+  constructor(label: string) {
+    super(`${label}: operação cancelada`);
+    this.name = 'AbortedError';
+  }
+}
+
+export function isAbortError(error: unknown): boolean {
+  return error instanceof AbortedError || (error instanceof Error && error.name === 'AbortError');
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -14,14 +26,28 @@ export function sleep(ms: number): Promise<void> {
 /**
  * Executa `fn` com timeout. O `AbortSignal` recebido por `fn` é acionado no estouro,
  * permitindo cancelar de fato a requisição HTTP (em vez de apenas ignorar a resposta).
+ * `external` permite cancelar de fora (cancelamento da análise pelo usuário).
  */
 export async function withTimeout<T>(
   fn: (signal: AbortSignal) => Promise<T>,
   ms: number,
-  label: string
+  label: string,
+  external?: AbortSignal
 ): Promise<T> {
+  if (external?.aborted) throw new AbortedError(label);
+
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const abortFromOutside = () => {
+    controller.abort();
+    rejectAbort();
+  };
+  let rejectAbort: () => void = () => undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    rejectAbort = () => reject(new AbortedError(label));
+  });
+
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       // Rejeitar ANTES de abortar: o abort faz a requisição rejeitar com AbortError,
@@ -30,10 +56,15 @@ export async function withTimeout<T>(
       controller.abort();
     }, ms);
   });
+
+  external?.addEventListener('abort', abortFromOutside, { once: true });
   try {
-    return await Promise.race([fn(controller.signal), timeout]);
+    const racers: Array<Promise<T>> = [fn(controller.signal), timeout];
+    if (external) racers.push(aborted);
+    return await Promise.race(racers);
   } finally {
     clearTimeout(timer);
+    external?.removeEventListener('abort', abortFromOutside);
   }
 }
 

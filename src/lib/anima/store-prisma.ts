@@ -2,7 +2,12 @@
 
 import { db } from '@/lib/db';
 import type { AnalysisStore, AnalysisSummaryRow } from './store';
+import type { WorkKind } from './types';
 
+const ACTIVE_STATUSES = ['queued', 'researching', 'analyzing', 'synthesizing'];
+
+/** Filtro estreito: compatível com `AnalysisWhereInput` sem depender do client gerado em tempo de teste. */
+type AnalysisWhere = { status?: string | { in: string[] }; kind?: string };
 const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 
 export const prismaStore: AnalysisStore = {
@@ -11,9 +16,11 @@ export const prismaStore: AnalysisStore = {
       data: {
         title: input.title,
         hint: input.hint,
+        focus: input.focus,
         kind: input.kind,
         depth: input.depth,
         model: input.model,
+        userSources: input.userSources,
         status: 'researching',
         researchStatus: 'running',
         results: { create: input.agentKeys.map((agentKey) => ({ agentKey, status: 'pending' })) },
@@ -26,17 +33,26 @@ export const prismaStore: AnalysisStore = {
     return db.analysis.findUnique({ where: { id }, include: { results: true } });
   },
 
-  async list(limit) {
+  async list({ limit, status, kind }) {
+    const where: AnalysisWhere = {};
+    if (status === 'active') where.status = { in: ACTIVE_STATUSES };
+    else if (status && status !== 'all') where.status = status;
+    if (kind && kind !== 'all') where.kind = kind;
+
     const rows = await db.analysis.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       take: limit,
       select: {
         id: true,
         title: true,
         hint: true,
+        focus: true,
         kind: true,
         depth: true,
         status: true,
+        researchStatus: true,
+        synthesisStatus: true,
         createdAt: true,
         durationMs: true,
         results: { select: { status: true } },
@@ -45,14 +61,16 @@ export const prismaStore: AnalysisStore = {
     return rows.map(
       ({ results, ...r }): AnalysisSummaryRow => ({
         ...r,
+        kind: r.kind as WorkKind,
         doneAgents: results.filter((x) => x.status === 'done').length,
+        totalAgents: results.length,
       })
     );
   },
 
   async listActive() {
     return db.analysis.findMany({
-      where: { status: { in: ['researching', 'analyzing', 'synthesizing'] } },
+      where: { status: { in: ACTIVE_STATUSES } },
       select: { id: true, updatedAt: true },
     });
   },
@@ -74,9 +92,9 @@ export const prismaStore: AnalysisStore = {
     return count > 0;
   },
 
-  async findLatestCompleted(title, kind, depth, hint) {
+  async findLatestCompleted(title, kind, depth, hint, focus) {
     const candidates = await db.analysis.findMany({
-      where: { status: 'completed', kind, depth, hint: hint ?? null },
+      where: { status: 'completed', kind, depth, hint: hint ?? null, focus: focus ?? null },
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: { results: true },

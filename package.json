@@ -1,9 +1,11 @@
 {
   "name": "anima",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "ANIMA — Analisador Narrativo Inteligente Multiagente",
-  "engines": { "node": ">=20.9" },
+  "engines": {
+    "node": ">=20.9"
+  },
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "prisma generate && next build",
@@ -13,7 +15,9 @@
     "test": "tsx --test tests/*.test.ts",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",

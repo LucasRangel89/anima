@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { toAnalysisDTO } from '@/lib/anima/dto';
-import { deleteAnalysis, reapOrphans } from '@/lib/anima/orchestrator';
+import { deleteAnalysis, queuePosition, reapOrphans } from '@/lib/anima/orchestrator';
 import { getStore } from '@/lib/anima/store-index';
 
 export const runtime = 'nodejs';
@@ -16,7 +16,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     await reapOrphans();
     const row = await (await getStore()).get(id);
     if (!row) return NextResponse.json({ error: 'Análise não encontrada.' }, { status: 404 });
-    return NextResponse.json({ analysis: toAnalysisDTO(row) });
+    return NextResponse.json({ analysis: toAnalysisDTO(row, { queuePosition: queuePosition(row.id) }) });
   } catch (error) {
     console.error('[GET /api/analyses/:id]', error);
     return NextResponse.json({ error: 'Falha ao carregar a análise.' }, { status: 500 });

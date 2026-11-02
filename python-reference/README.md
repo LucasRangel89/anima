@@ -82,4 +82,4 @@ streamlit run app.py
 3. **Qualidade da pesquisa**: a precisão do dossiê limita a de todo o
    relatório. Prefira Tavily/SearchAPI em produção e sempre cite as fontes.
 
-> **Aviso (v0.3):** esta pasta é a referência histórica do blueprint v2.0 (6 especialistas). Os prompts atuais ficam em `src/lib/anima/prompts.ts` e não são espelhados aqui.
+> **Aviso (v0.4):** esta pasta é a referência histórica do blueprint v2.0 (6 especialistas, um pesquisador, sem curador). O app atual tem 8 especialistas, síntese do Curador, fontes tipadas (Wikipédia, Open Library, OpenAlex, TMDB), recorte, profundidade configurável e fila. Os prompts atuais ficam em `src/lib/anima/prompts.ts` e **não** são espelhados aqui.
