@@ -28,11 +28,27 @@ test('analisa uma obra, responde uma pergunta e baixa o cofre', async ({ page })
   const status = await (await page.request.get('/api/status')).text();
   console.log(`[api/status] ${status.slice(0, 300)}`);
 
+  const botao = page.getByRole('button', { name: /Analisar obra/ });
+  await expect(botao).toBeEnabled({ timeout: 60_000 });
+
+  // Se algo cobrir o botão, o clique do Playwright espera para sempre: medimos antes e dizemos o que é.
+  const diagnostico = await botao.evaluate((elemento) => {
+    const caixa = elemento.getBoundingClientRect();
+    const topo = document.elementFromPoint(caixa.left + caixa.width / 2, caixa.top + caixa.height / 2);
+    return {
+      topo: topo ? `${topo.tagName.toLowerCase()}.${String(topo.className).slice(0, 80)}` : 'null',
+      y: Math.round(caixa.top),
+      alturaJanela: window.innerHeight,
+      lentesAtivas: document.querySelectorAll('[aria-pressed="true"]').length,
+    };
+  });
+  console.log(`[botão Analisar] ${JSON.stringify(diagnostico)}`);
+
   const [resposta] = await Promise.all([
     page.waitForResponse((r) => r.url().includes('/api/analyses') && r.request().method() === 'POST', {
       timeout: 120_000,
     }),
-    page.getByRole('button', { name: /Analisar obra/ }).click(),
+    botao.click(),
   ]);
   const corpo = await resposta.text();
   console.log(`[POST /api/analyses] ${resposta.status()} ${corpo.slice(0, 400)}`);
