@@ -277,6 +277,18 @@ Cobertura de testes: pipeline completo (mock), fila, cancelamento, retomada, fal
 - **`tests/store-contract.test.ts`** roda a mesma suíte de contrato contra o store de memória **e** contra o Prisma. Na memória, sempre. No Prisma, quando `DATABASE_URL` e o client gerado estiverem disponíveis — caso contrário a suíte do banco é **pulada com motivo**, nunca passada em silêncio.
 - **`tests/budget.test.ts`** prova que a estimativa de tokens é conservadora, que a redução é determinística e que nenhum prompt passa do contexto configurado.
 - **`tests/fallback.test.ts`** sobe um servidor que devolve 429 com `Retry-After` de 15 minutos e verifica que a análise **termina com o modelo alternativo** (e que, sem alternativo, falha rápido e com mensagem clara — sem ficar horas esperando).
+- **CI no GitHub Actions** (`.github/workflows/ci.yml`): tipos, lint, testes com o contrato do Prisma rodando de verdade, auditoria de UI e build — a cada push e pull request.
+
+### Publicar e usar de qualquer aparelho
+
+O ANIMA roda num processo Node persistente, então **GitHub Pages não serve** (ele publica arquivos parados).
+O guia [`docs/PUBLICAR.md`](docs/PUBLICAR.md) cobre os três caminhos reais, em ordem de dificuldade: celular
+na mesma rede Wi-Fi, túnel a partir do seu computador e hospedagem em nuvem com o `Dockerfile` deste
+repositório.
+
+Publicado fora do localhost, **defina `ANIMA_ACCESS_TOKEN`**: um token único protege páginas e API (cookie
+`HttpOnly`, comparação em tempo constante). Sem ele, qualquer pessoa com o endereço pode consumir sua cota
+de LLM e ler suas análises — o `doctor` acusa isso.
 
 ### `npm run doctor`
 
@@ -310,7 +322,7 @@ anima/
 ├─ prisma/schema.prisma    # modelo de dados (SQLite)
 ├─ db/                     # arquivo do banco (ignorado pelo git)
 ├─ tests/                  # node:test + scripts de runtime
-├─ docs/                   # arquitetura e método
+├─ docs/                   # arquitetura, método e publicação
 ├─ python-reference/       # referência histórica da v0.1 (não acompanha os prompts atuais)
 ├─ .env.example            # todas as variáveis, comentadas
 ├─ CHANGELOG.md            # histórico por versão

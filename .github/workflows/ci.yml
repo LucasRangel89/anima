@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Portão rápido: tipos, lint e testes (o contrato do Prisma roda de verdade, com banco).
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Gerar client do Prisma
+        run: npx prisma generate
+
+      - name: Criar banco de teste
+        run: npx prisma db push --skip-generate
+        env:
+          # Relativo ao schema (prisma/), como o Prisma resolve caminhos SQLite.
+          DATABASE_URL: file:./ci.db
+
+      - name: Tipos
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes
+        # Com DATABASE_URL o contrato roda contra o Prisma além da memória; sem ele, é pulado.
+        run: npm test
+        env:
+          DATABASE_URL: file:./ci.db
+          LLM_PROVIDER: mock
+
+      - name: Auditoria de UI (contraste e estrutura)
+        run: |
+          # Sobe o app em modo demonstração e audita o HTML realmente servido.
+          LLM_PROVIDER=mock ANIMA_STORE=memory npm run dev > /tmp/dev.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://127.0.0.1:3000/ && break
+            sleep 2
+          done
+          node scripts/audit-ui.mjs http://127.0.0.1:3000
+
+  # Build separado: é o que pega erro de renderização/prerender, e é lento.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+        env:
+          DATABASE_URL: file:./ci.db
+          LLM_PROVIDER: mock

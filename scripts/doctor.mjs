@@ -242,6 +242,24 @@ async function checkPort(port = 3000) {
   else add(WARN, 'porta', `127.0.0.1:${port} já está em uso`, 'o `npm run dev` vai falhar; pare o outro processo');
 }
 
+function checkExposure() {
+  const site = process.env.NEXT_PUBLIC_SITE_URL ?? '';
+  const local = !site || /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(site);
+  const token = process.env.ANIMA_ACCESS_TOKEN?.trim();
+  if (local) {
+    add(OK, 'acesso', 'endereço local (sem exposição pública)', null);
+  } else if (token) {
+    add(OK, 'acesso', `publicado em ${site} e protegido por ANIMA_ACCESS_TOKEN`, null);
+  } else {
+    add(
+      FAIL,
+      'acesso',
+      `publicado em ${site} SEM ANIMA_ACCESS_TOKEN: qualquer pessoa pode gastar sua cota e ler suas análises`,
+      'defina ANIMA_ACCESS_TOKEN (veja docs/PUBLICAR.md)'
+    );
+  }
+}
+
 function checkFiles() {
   if (!existsSync(resolve(ROOT, '.env'))) {
     add(WARN, 'config', '.env ausente', 'rode `cp .env.example .env`');
@@ -260,6 +278,7 @@ function checkFiles() {
 async function main() {
   console.log(`\nANIMA doctor — ${new Date().toLocaleString('pt-BR')}${OFFLINE ? ' (offline)' : ''}\n`);
   checkFiles();
+  checkExposure();
   await checkDatabase();
   await checkLLM();
   await checkSources();
