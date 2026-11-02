@@ -111,7 +111,21 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Testes de interface
-        run: npx playwright test
+        # A saída é resumida em anotações: o log bruto do Actions nem sempre é acessível a quem revisa.
+        run: |
+          set +e
+          npx playwright test > /tmp/e2e.log 2>&1
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "::group::Falhas"
+            grep -E "✘|Error:|Timed out|expect\(|waiting for|locator" /tmp/e2e.log | head -40
+            echo "::endgroup::"
+            grep -E "✘|Error:|Timed out|expect\(|waiting for|locator" /tmp/e2e.log | head -25 | tr -d '\r' | sed 's/%/%25/g' | while IFS= read -r linha; do
+              echo "::error::$linha"
+            done
+            tail -80 /tmp/e2e.log
+          fi
+          exit $status
         env:
           CI: '1'
           LLM_PROVIDER: mock

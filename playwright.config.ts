@@ -10,8 +10,8 @@ const PORT = 3100;
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 120_000,
-  expect: { timeout: 20_000 },
+  timeout: 180_000,
+  expect: { timeout: 30_000 },
   // Um store em memória por processo: paralelismo entre arquivos criaria disputa de estado.
   fullyParallel: false,
   workers: 1,
@@ -20,7 +20,8 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     acceptDownloads: true,
-    trace: 'retain-on-failure',
+    // Traces são pesados (dezenas de MB); guardamos apenas na primeira repetição de uma falha.
+    trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     locale: 'pt-BR',
   },

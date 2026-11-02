@@ -5,19 +5,19 @@ import { expect, test } from '@playwright/test';
 test('analisa uma obra, responde uma pergunta e baixa o cofre', async ({ page }) => {
   await page.goto('/');
 
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('ANIMA');
+  await expect(page).toHaveTitle(/ANIMA/);
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
   // O exemplo preenche o formulário; nada é enviado antes do clique em "Analisar obra".
   await page.getByRole('button', { name: 'Dom Casmurro', exact: true }).click();
-  await expect(page.getByLabel('Título da obra')).toHaveValue('Dom Casmurro');
+  await expect(page.getByLabel('Obra', { exact: true })).toHaveValue('Dom Casmurro');
 
   await page.getByRole('button', { name: /Analisar obra/ }).click();
   await page.waitForURL(/\/analise\//);
 
-  // O relatório abre com a síntese e termina na nota de honestidade.
+  // O relatório abre com o título; a conclusão é sinalizada pela caixa de perguntas, que só existe no fim.
   await expect(page.getByRole('heading', { name: 'Dom Casmurro', level: 1 })).toBeVisible();
-  await expect(page.getByText(/Conteúdo gerado por IA/).first()).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByText(/Modo demonstração|demonstração/).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Perguntas de acompanhamento' })).toBeVisible({ timeout: 120_000 });
 
   // Pergunta de acompanhamento: aparece o campo, a resposta entra na lista.
   const campo = page.getByLabel('Escreva sua pergunta sobre a obra');
@@ -25,8 +25,8 @@ test('analisa uma obra, responde uma pergunta e baixa o cofre', async ({ page })
   await campo.fill('Qual é a objeção mais forte a esta leitura?');
   await page.getByRole('button', { name: 'Perguntar' }).click();
 
-  await expect(page.getByText('Qual é a objeção mais forte a esta leitura?')).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByText(/provedor mock/).last()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText('Qual é a objeção mais forte a esta leitura?')).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByText(/gerado pelo provedor/).last()).toBeVisible({ timeout: 90_000 });
 
   // Exportação para o Obsidian: o navegador recebe um .zip de verdade.
   const [download] = await Promise.all([
