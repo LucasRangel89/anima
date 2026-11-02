@@ -40,7 +40,22 @@ jobs:
 
       - name: Testes
         # Com DATABASE_URL o contrato roda contra o Prisma além da memória; sem ele, é pulado.
-        run: npm test
+        # A saída é capturada para que as falhas apareçam como anotação no PR (o log bruto fica
+        # atrás de um host que nem sempre está acessível a quem revisa).
+        run: |
+          set +e
+          npm test > /tmp/testes.log 2>&1
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "::group::Falhas"
+            grep -E -A14 "^not ok" /tmp/testes.log | head -160
+            echo "::endgroup::"
+            grep -E -A5 "^not ok" /tmp/testes.log | head -40 | tr -d '\r' | sed 's/%/%25/g' | while IFS= read -r linha; do
+              echo "::error::$linha"
+            done
+          fi
+          tail -12 /tmp/testes.log
+          exit $status
         env:
           DATABASE_URL: file:./ci.db
           LLM_PROVIDER: mock

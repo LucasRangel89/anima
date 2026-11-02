@@ -1,10 +1,33 @@
 // ANIMA — persistência com Prisma + SQLite (produção).
 
 import { db } from '@/lib/db';
-import type { AnalysisStore, AnalysisSummaryRow } from './store';
-import type { WorkKind } from './types';
+import type { AnalysisRow, AnalysisStore, AnalysisSummaryRow } from './store';
+import { AGENT_KEYS, type WorkKind } from './types';
 
 const ACTIVE_STATUSES = ['queued', 'researching', 'analyzing', 'synthesizing'];
+
+/**
+ * Ordena as lentes na ordem canônica do produto.
+ * O SQLite devolve as linhas na ordem em que foram inseridas, mas isso é detalhe de implementação:
+ * a interface e os testes dependem da ordem, então ela é garantida aqui.
+ */
+function withOrderedResults<T extends { results: Array<{ agentKey: string }> }>(row: T): T {
+  const position = (key: string) => {
+    const index = (AGENT_KEYS as readonly string[]).indexOf(key);
+    return index === -1 ? AGENT_KEYS.length : index;
+  };
+  return { ...row, results: [...row.results].sort((a, b) => position(a.agentKey) - position(b.agentKey)) };
+}
+
+/** Violação de chave estrangeira: a análise foi apagada enquanto uma lente escrevia. */
+function isMissingParent(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: string }).code === 'P2003'
+  );
+}
 
 /** Filtro estreito: compatível com `AnalysisWhereInput` sem depender do client gerado em tempo de teste. */
 type AnalysisWhere = { status?: string | { in: string[] }; kind?: string };
@@ -12,7 +35,7 @@ const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, 
 
 export const prismaStore: AnalysisStore = {
   async create(input) {
-    return db.analysis.create({
+    const row = await db.analysis.create({
       data: {
         title: input.title,
         hint: input.hint,
@@ -27,10 +50,12 @@ export const prismaStore: AnalysisStore = {
       },
       include: { results: true },
     });
+    return withOrderedResults(row) as AnalysisRow;
   },
 
   async get(id) {
-    return db.analysis.findUnique({ where: { id }, include: { results: true } });
+    const row = await db.analysis.findUnique({ where: { id }, include: { results: true } });
+    return row ? (withOrderedResults(row) as AnalysisRow) : null;
   },
 
   async list({ limit, status, kind }) {
@@ -80,11 +105,17 @@ export const prismaStore: AnalysisStore = {
   },
 
   async updateAgent(id, agentKey, patch) {
-    await db.agentResult.upsert({
-      where: { analysisId_agentKey: { analysisId: id, agentKey } },
-      create: { analysisId: id, agentKey, ...patch },
-      update: patch,
-    });
+    try {
+      await db.agentResult.upsert({
+        where: { analysisId_agentKey: { analysisId: id, agentKey } },
+        create: { analysisId: id, agentKey, ...patch },
+        update: patch,
+      });
+    } catch (error) {
+      // Se o usuário excluiu a análise no meio da execução, a linha da lente não pode ser criada.
+      // O orquestrador já tolera isso (`safe`), mas engolir aqui evita ruído de erro no log.
+      if (!isMissingParent(error)) throw error;
+    }
   },
 
   async delete(id) {
@@ -99,6 +130,7 @@ export const prismaStore: AnalysisStore = {
       take: 50,
       include: { results: true },
     });
-    return candidates.find((r) => normalize(r.title) === normalize(title)) ?? null;
+    const match = candidates.find((r) => normalize(r.title) === normalize(title));
+    return match ? (withOrderedResults(match) as AnalysisRow) : null;
   },
 };
