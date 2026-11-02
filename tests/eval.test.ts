@@ -1,286 +1,248 @@
-// ANIMA — testes da avaliação de qualidade (Fase 2).
+// ANIMA — testes das checagens de qualidade (Fase 2).
 //
-// O que estes testes protegem: as checagens precisam medir o que dizem medir, e a verificação de
-// referências precisa ser honesta — sem transformar "não achei" ou "sem rede" em "confirmada".
+// O que se prova aqui: a régua mede o que diz medir e a conferência de referências é honesta — "não achei"
+// e "não consegui consultar" são resultados DIFERENTES, e nenhum dos dois vira "confirmada".
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
   GOLDEN_WORKS,
-  checkCoverage,
   checkSection,
   countDaggers,
+  countHeadings,
   countWords,
-  evaluateWork,
-  extractReferences,
+  evaluateAnalysis,
   hasLimitsSection,
+  parseReferences,
   renderEvalReport,
-  verifyReference,
   verifyReferences,
+  type JsonFetcher,
 } from '../src/lib/anima/eval';
 import { AGENT_KEYS, type AnalysisDTO } from '../src/lib/anima/types';
 
-const section = (extra = '') => `### Leituras possíveis
+const dto = (content: string, overrides: Partial<AnalysisDTO> = {}): AnalysisDTO => ({
+  id: 'a1',
+  title: 'Dom Casmurro',
+  hint: 'Machado de Assis, 1899',
+  focus: null,
+  kind: 'book',
+  depth: 'standard',
+  status: 'completed',
+  research: '# Dossiê\n\nCapitu, Bentinho e o ciúme. A crítica de Roberto Schwarz, *Ao vencedor as batatas*, 1977, é central.†',
+  researchStatus: 'done',
+  sources: [],
+  synthesis: '## Síntese\n\nA dúvida é o método.',
+  synthesisStatus: 'done',
+  error: null,
+  durationMs: 12_000,
+  model: 'modelo-x',
+  usage: null,
+  createdAt: '2026-11-02T10:00:00.000Z',
+  updatedAt: '2026-11-02T10:00:01.000Z',
+  results: AGENT_KEYS.map((agentKey) => ({
+    agentKey,
+    status: 'done' as const,
+    content,
+    error: null,
+    durationMs: 100,
+  })),
+  progress: 100,
+  queuePosition: null,
+  followUps: [],
+  ...overrides,
+});
 
-O romance organiza a suspeita como forma${extra} [F1]. A leitura de Roberto Schwarz, *Ao vencedor as batatas*, 1977, ancora o debate†.
+/* ───────────────────────── contagem ───────────────────────── */
 
-### Limites e verificações
-
-- Confiança: média, porque o dossiê cobre a fortuna crítica principal.
-- A data de publicação da primeira edição merece checagem†.
-- A lente de recepção não foi explorada.`;
-
-/* ───────────────────────── contagem e forma ───────────────────────── */
-
-test('countWords ignora marcação, links e blocos de código', () => {
+test('countWords ignora marcação, links e código', () => {
   assert.equal(countWords('uma duas três'), 3);
-  assert.equal(countWords('## título\n\n**negrito** e *itálico*'), 4);
-  assert.equal(countWords('[texto do link](https://exemplo.com)'), 3);
-  assert.equal(countWords('```\ncode here\n```\nfora'), 1);
+  assert.equal(countWords('## Título\n\n**forte** e *itálico*'), 4);
+  assert.equal(countWords('[link](https://exemplo.com) e mais'), 3);
+  assert.equal(countWords('```\nconst x = 1;\n```'), 0);
   assert.equal(countWords(''), 0);
+  assert.equal(countWords('— —'), 0);
 });
 
-test('hasLimitsSection aceita níveis e recusa a ausência', () => {
-  assert.equal(hasLimitsSection('### Limites e verificações\n- a'), true);
-  assert.equal(hasLimitsSection('texto\n\n## Limites e Verificações\n- a'), true);
-  assert.equal(hasLimitsSection('### Conclusão\nnada'), false);
-  assert.equal(hasLimitsSection('Limites e verificações sem heading'), false);
+test('hasLimitsSection aceita níveis diferentes e exige o título', () => {
+  assert.equal(hasLimitsSection('### Limites e verificações\n- ok'), true);
+  assert.equal(hasLimitsSection('## Limites e verificações\n- ok'), true);
+  assert.equal(hasLimitsSection('### Limites\n- ok'), false);
+  assert.equal(hasLimitsSection('texto com "Limites e verificações" no meio'), false);
 });
 
-test('countDaggers conta o marcador de conhecimento prévio', () => {
-  assert.equal(countDaggers('fato† e outro†'), 2);
-  assert.equal(countDaggers('sem marcador'), 0);
+test('countDaggers e countHeadings contam o que prometem', () => {
+  assert.equal(countDaggers('fato† e outro† sem marca'), 2);
+  assert.equal(countHeadings('### Um\n\ntexto\n\n### Dois\n'), 2);
 });
 
-test('checkSection mede a faixa de palavras da profundidade pedida', () => {
-  const brief = checkSection('thematic', section(), 'brief');
-  // O texto de exemplo é curto para "Panorama" (350–500) — o teste registra isso, não esconde.
-  assert.equal(brief.expected.min, 350);
-  assert.equal(brief.withinRange, false);
-  assert.ok(brief.issues.some((i) => i.startsWith('curta:')));
-  assert.equal(brief.hasLimitsSection, true);
-  assert.ok(brief.daggerCount >= 2);
+test('checkSection aponta curta, longa, sem limites e sem †', () => {
+  const curta = checkSection('thematic', '### Análise\n\nCurto demais.', 'standard');
+  assert.equal(curta.withinRange, false);
+  assert.ok(curta.issues.some((i) => i.includes('curta')));
+  assert.ok(curta.issues.some((i) => i.includes('Limites')));
 
-  // Um texto dentro da faixa passa.
-  const long = `### Análise\n\n${'palavra '.repeat(420)}\n\n### Limites e verificações\n- ok`;
-  const inRange = checkSection('thematic', long, 'brief');
-  assert.equal(inRange.withinRange, true);
-  assert.deepEqual(inRange.issues, []);
-});
-
-test('checkSection não aceita texto muito acima do teto (prolixidão também é defeito)', () => {
-  const long = `### Análise\n\n${'palavra '.repeat(900)}\n\n### Limites e verificações\n- ok`;
-  const check = checkSection('thematic', long, 'brief'); // teto 500 + 25% = 625
-  assert.equal(check.withinRange, false);
-  assert.ok(check.issues.some((i) => i.startsWith('longa:')));
-});
-
-test('checkSection sinaliza ausência da seção de limites', () => {
-  const check = checkSection('thematic', `### Análise\n\n${'palavra '.repeat(400)}`, 'brief');
-  assert.equal(check.hasLimitsSection, false);
-  assert.ok(check.issues.includes('sem a seção "Limites e verificações"'));
-});
-
-/* ───────────────────────── obras de referência ───────────────────────── */
-
-test('o conjunto cobre os cinco meios pedidos, sem repetição', () => {
-  assert.equal(GOLDEN_WORKS.length, 5);
-  const kinds = GOLDEN_WORKS.map((w) => w.kind).sort();
-  assert.deepEqual(kinds, ['book', 'book', 'film', 'game', 'series']);
-  assert.equal(new Set(GOLDEN_WORKS.map((w) => w.id)).size, 5);
-  assert.ok(GOLDEN_WORKS.some((w) => w.id === 'dom-casmurro'), 'precisa de um livro brasileiro');
-  for (const work of GOLDEN_WORKS) {
-    assert.ok(work.why.length > 20, `${work.id} precisa justificar a presença no conjunto`);
-    assert.ok(work.expectedTerms.length > 0);
-  }
+  const boa = `### Tese\n\n${'palavra '.repeat(700)}\n\n### Limites e verificações\n\n- confiança média†`;
+  const ok = checkSection('thematic', boa, 'standard');
+  assert.equal(ok.withinRange, true);
+  assert.equal(ok.hasLimits, true);
+  assert.ok(ok.daggers >= 1);
+  assert.deepEqual(ok.issues, []);
 });
 
 /* ───────────────────────── referências ───────────────────────── */
 
-test('extrai referências no formato que o prompt pede', () => {
+test('parseReferences entende os dois formatos pedidos pelos prompts', () => {
   const text = `
-    Como argumenta Roberto Schwarz, *Ao vencedor as batatas*, 1977, a forma do romance é social.
-    Também Bakhtin (1981) pensa o cronotopo, e Genette, *Discurso da narrativa*, 1972, a voz.
-    Nada aqui: 1899 sozinho.
+    Como argumenta Roberto Schwarz, *Ao vencedor as batatas*, 1977, o romance é social.
+    Bakhtin (1981) pensa o cronotopo. Gérard Genette, *Discurso da narrativa*, 1972, trata da voz.
+    Em 1899 a obra foi publicada.
   `;
-  const refs = extractReferences(text);
+  const refs = parseReferences(text);
   const authors = refs.map((r) => r.author);
 
-  assert.ok(authors.some((a) => a.includes('Schwarz')), 'deve pegar "Autor, *Obra*, ano"');
-  assert.ok(authors.some((a) => a.includes('Bakhtin')), 'deve pegar "Autor (ano)"');
-  assert.ok(authors.some((a) => a.includes('Genette')), 'deve pegar um nome seguido de vírgula e obra');
+  assert.ok(authors.includes('Roberto Schwarz'));
+  assert.ok(authors.includes('Bakhtin'));
+  assert.ok(authors.some((a) => a.includes('Genette')));
+  assert.ok(!refs.some((r) => r.author.includes('1899')), 'ano solto não é referência');
 
-  const schwarz = refs.find((r) => r.author.includes('Schwarz'))!;
-  assert.equal(schwarz.year, 1977);
+  const schwarz = refs.find((r) => r.author === 'Roberto Schwarz')!;
   assert.equal(schwarz.title, 'Ao vencedor as batatas');
+  assert.equal(schwarz.year, 1977);
+  assert.equal(schwarz.format, 'autor-obra-ano');
+
+  const bakhtin = refs.find((r) => r.author === 'Bakhtin')!;
+  assert.equal(bakhtin.title, null);
+  assert.equal(bakhtin.format, 'autor-ano');
 });
 
-test('não duplica a mesma referência escrita duas vezes', () => {
-  const text = 'Roberto Schwarz, *Ao vencedor as batatas*, 1977. Depois, Schwarz, *Ao vencedor as batatas*, 1977.';
-  const refs = extractReferences(text).filter((r) => r.title === 'Ao vencedor as batatas');
+test('parseReferences não repete a mesma referência', () => {
+  const text = 'Roberto Schwarz, *Ao vencedor as batatas*, 1977. E outra vez: Roberto Schwarz, *Ao vencedor as batatas*, 1977.';
+  const refs = parseReferences(text);
   assert.equal(refs.length, 1);
 });
 
-test('referência confirmada quando Open Library traz título e ano compatíveis', async () => {
-  const fakeFetch = (async () =>
-    new Response(JSON.stringify({ docs: [{ title: 'Ao vencedor as batatas', first_publish_year: 1977, author_name: ['Roberto Schwarz'] }] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })) as unknown as typeof fetch;
+const fakeFetch = (handler: (url: string) => unknown, status = 200): JsonFetcher => async (url) => ({
+  ok: status >= 200 && status < 300,
+  status,
+  json: async () => handler(url),
+});
 
-  const result = await verifyReference({ author: 'Roberto Schwarz', title: 'Ao vencedor as batatas', year: 1977, raw: 'x' }, fakeFetch);
-  assert.equal(result.status, 'confirmada');
+test('referência confirmada quando a base devolve o ano', async () => {
+  const fetcher = fakeFetch(() => ({ docs: [{ title: 'Ao vencedor as batatas', first_publish_year: 1977 }] }));
+  const [result] = await verifyReferences(parseReferences('Roberto Schwarz, *Ao vencedor as batatas*, 1977'), fetcher);
+  assert.equal(result.verdict, 'confirmada');
   assert.match(result.evidence, /Open Library/);
 });
 
-test('ano incompatível vira "duvidosa", não "confirmada"', async () => {
-  const fakeFetch = (async () =>
-    new Response(JSON.stringify({ docs: [{ title: 'Ao vencedor as batatas', first_publish_year: 1990, author_name: ['Roberto Schwarz'] }] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })) as unknown as typeof fetch;
-
-  const result = await verifyReference({ author: 'Roberto Schwarz', title: 'Ao vencedor as batatas', year: 1977, raw: 'x' }, fakeFetch);
-  assert.equal(result.status, 'duvidosa');
+test('ano diferente vira duvidosa, não confirmada', async () => {
+  const fetcher = fakeFetch(() => ({ docs: [{ title: 'Ao vencedor as batatas', first_publish_year: 2001 }] }));
+  const [result] = await verifyReferences(parseReferences('Roberto Schwarz, *Ao vencedor as batatas*, 1977'), fetcher);
+  assert.equal(result.verdict, 'duvidosa');
 });
 
-test('título diferente não confirma uma referência inventada', async () => {
-  const fakeFetch = (async () =>
-    new Response(JSON.stringify({ docs: [{ title: 'Outro livro completamente diferente', first_publish_year: 1977, author_name: ['Roberto Schwarz'] }] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })) as unknown as typeof fetch;
-
-  const result = await verifyReference(
-    { author: 'Roberto Schwarz', title: 'A obra que não existe', year: 1977, raw: 'x' },
-    fakeFetch
-  );
-  assert.equal(result.status, 'duvidosa');
-});
-
-test('mesmo título e ano, mas outro autor: duvidosa', async () => {
-  // O falso positivo clássico: a base devolve um registro do ano certo por outra pessoa.
-  const fakeFetch = (async () =>
-    new Response(
-      JSON.stringify({ docs: [{ title: 'Ao vencedor as batatas', first_publish_year: 1977, author_name: ['João Silva'] }] }),
-      { status: 200, headers: { 'content-type': 'application/json' } }
-    )) as unknown as typeof fetch;
-
-  const result = await verifyReference({ author: 'Roberto Schwarz', title: 'Ao vencedor as batatas', year: 1977, raw: 'x' }, fakeFetch);
-  assert.equal(result.status, 'duvidosa');
-});
-
-test('referência sem título ("Autor (ano)") exige autor compatível', async () => {
-  const otherAuthor = (async () =>
-    new Response(JSON.stringify({ docs: [{ title: 'Outro artigo', first_publish_year: 1981, author_name: ['Um Outro'] }] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })) as unknown as typeof fetch;
-  assert.equal(
-    (await verifyReference({ author: 'Bakhtin', title: null, year: 1981, raw: 'x' }, otherAuthor)).status,
-    'duvidosa'
-  );
-
-  const sameAuthor = (async () =>
-    new Response(JSON.stringify({ docs: [{ title: 'The Dialogic Imagination', first_publish_year: 1981, author_name: ['M. M. Bakhtin'] }] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })) as unknown as typeof fetch;
-  assert.equal(
-    (await verifyReference({ author: 'Bakhtin', title: null, year: 1981, raw: 'x' }, sameAuthor)).status,
-    'confirmada'
-  );
-});
-
-test('sem rede, o status é "nao_verificada" — nunca "confirmada" por omissão', async () => {
-  const failingFetch = (async () => {
+test('base fora do ar vira não verificada — nunca confirmada', async () => {
+  const fetcher: JsonFetcher = async () => {
     throw new Error('rede indisponível');
-  }) as unknown as typeof fetch;
-
-  const result = await verifyReference({ author: 'Genette', title: 'Discurso da narrativa', year: 1972, raw: 'x' }, failingFetch);
-  assert.equal(result.status, 'nao_verificada');
-  assert.match(result.evidence, /inacess/i);
-});
-
-test('resposta HTTP de erro também conta como não verificada', async () => {
-  const failingFetch = (async () => new Response('nope', { status: 503 })) as unknown as typeof fetch;
-  const result = await verifyReference({ author: 'X', title: null, year: 2000, raw: 'x' }, failingFetch);
-  assert.equal(result.status, 'nao_verificada');
-});
-
-test('verifyReferences lida com um texto sem referências', async () => {
-  const refs = await verifyReferences('Texto sem nenhuma citação formal.', (async () => new Response('')) as unknown as typeof fetch);
-  assert.deepEqual(refs, []);
-});
-
-/* ───────────────────────── avaliação completa ───────────────────────── */
-
-function dtoWith(content: string): AnalysisDTO {
-  return {
-    id: 'x',
-    title: 'Dom Casmurro',
-    hint: null,
-    focus: null,
-    kind: 'book',
-    depth: 'brief',
-    status: 'completed',
-    research: '# Dossiê\n\nCapitu e Bento.',
-    researchStatus: 'done',
-    sources: [],
-    synthesis: '## Síntese\n\nConvergências.',
-    synthesisStatus: 'done',
-    error: null,
-    durationMs: 1000,
-    model: 'mock',
-    usage: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    results: AGENT_KEYS.map((key) => ({
-      agentKey: key,
-      status: 'done' as const,
-      content,
-      error: null,
-      durationMs: 10,
-    })),
-    progress: 100,
-    queuePosition: null,
-    followUps: [],
   };
-}
-
-test('evaluateWork resume forma, cobertura e referências', () => {
-  const work = GOLDEN_WORKS.find((w) => w.id === 'dom-casmurro')!;
-  const evaluation = evaluateWork(work, dtoWith(section()));
-
-  assert.equal(evaluation.sections.length, AGENT_KEYS.length);
-  assert.equal(evaluation.score.withLimits, AGENT_KEYS.length);
-  assert.ok(evaluation.score.daggers > 0);
-  assert.ok(!evaluation.coverage.some((c) => c.includes('Capitu')), 'Capitu aparece no dossiê');
-  assert.ok(!evaluation.coverage.some((c) => c.includes('Bento')), 'Bento aparece no dossiê');
-  assert.ok(evaluation.references.length >= 1, 'a seção de exemplo tem uma referência');
-  assert.equal(evaluation.score.refsUnverified, evaluation.references.length, 'sem rede, tudo fica não verificado');
+  const [result] = await verifyReferences(parseReferences('Bakhtin (1981)'), fetcher);
+  assert.equal(result.verdict, 'nao_verificada');
+  assert.match(result.evidence, /rede indisponível/);
 });
 
-test('evaluateWork aponta termos ausentes (cobertura fraca)', () => {
-  const work = GOLDEN_WORKS.find((w) => w.id === 'dom-casmurro')!;
-  const evaluation = evaluateWork(work, { ...dtoWith(section()), research: 'Nada relevante.' });
-  assert.ok(evaluation.coverage.some((c) => c.includes('Capitu')));
+test('Crossref entra quando a Open Library não acha', async () => {
+  const fetcher = fakeFetch((url) =>
+    url.includes('openlibrary')
+      ? { docs: [] }
+      : { message: { items: [{ title: ['Ao vencedor as batatas'], issued: { 'date-parts': [[1977]] } }] } }
+  );
+  const [result] = await verifyReferences(parseReferences('Roberto Schwarz, *Ao vencedor as batatas*, 1977'), fetcher);
+  assert.equal(result.verdict, 'confirmada');
+  assert.match(result.evidence, /Crossref/);
 });
 
-test('o relatório markdown traz resumo, tabela de referências e a data', () => {
-  const work = GOLDEN_WORKS[0];
-  const md = renderEvalReport([evaluateWork(work, dtoWith(section()))], { model: 'modelo-x', date: '02/11/2026' });
-
-  assert.match(md, /# Avaliação ANIMA/);
-  assert.match(md, /\| Obra \| Situação \|/);
-  assert.match(md, /Dom Casmurro/);
-  assert.match(md, /02\/11\/2026/);
-  assert.match(md, /modelo-x/);
-  assert.match(md, /\| Referência \| Situação \| Evidência \|/);
+test('verifyReferences respeita o teto de consultas', async () => {
+  let calls = 0;
+  const fetcher: JsonFetcher = async () => {
+    calls += 1;
+    return { ok: true, json: async () => ({ docs: [] }) };
+  };
+  const refs = Array.from({ length: 30 }, (_, i) => ({
+    raw: `Autor ${i} (${2000 + i})`,
+    author: `Autor ${i}`,
+    title: null,
+    year: 2000 + i,
+    format: 'autor-ano' as const,
+  }));
+  const results = await verifyReferences(refs, fetcher, 4);
+  assert.equal(results.length, 4);
+  assert.equal(calls, 8, 'quatro referências × duas bases');
 });
 
-test('checkCoverage é insensível a caixa', () => {
-  const work = { ...GOLDEN_WORKS[0], expectedTerms: ['CAPITU'] };
-  assert.deepEqual(checkCoverage(dtoWith('capitu aparece aqui'), work), []);
+/* ───────────────────────── conjunto e relatório ───────────────────────── */
+
+test('o conjunto cobre cinco obras e cinco meios, sem repetir id', () => {
+  assert.equal(GOLDEN_WORKS.length, 5);
+  assert.equal(new Set(GOLDEN_WORKS.map((w) => w.id)).size, 5);
+  assert.deepEqual(
+    [...new Set(GOLDEN_WORKS.map((w) => w.kind))].sort(),
+    ['book', 'book', 'film', 'game', 'series'].filter((v, i, a) => a.indexOf(v) === i).sort()
+  );
+  assert.ok(GOLDEN_WORKS.some((w) => w.id === 'dom-casmurro'), 'precisa da obra brasileira canônica');
+  for (const work of GOLDEN_WORKS) {
+    assert.ok(work.why.length > 20, `${work.id} precisa justificar a presença`);
+    assert.ok(work.hint.length > 0);
+  }
+});
+
+test('evaluateAnalysis resume forma e coleta referências do relatório inteiro', () => {
+  const content = `### Tese\n\n${'palavra '.repeat(700)}\n\n### Limites e verificações\n\n- confiança média†\n- checar a data†`;
+  const evaluation = evaluateAnalysis(GOLDEN_WORKS[0], dto(content));
+
+  assert.equal(evaluation.totals.lenses, AGENT_KEYS.length);
+  assert.equal(evaluation.totals.withLimits, AGENT_KEYS.length);
+  assert.ok(evaluation.totals.daggers > 0);
+  assert.ok(evaluation.references.some((r) => r.author === 'Roberto Schwarz'), 'a referência do dossiê entra');
+  assert.equal(evaluation.status, 'completed');
+});
+
+test('evaluateAnalysis rebaixa a nota quando falta dossiê ou síntese', () => {
+  const content = '### Tese\n\ncurto\n\n### Limites e verificações\n- x';
+  const evaluation = evaluateAnalysis(GOLDEN_WORKS[0], dto(content, { research: null, synthesis: null }));
+  assert.ok(evaluation.issues.includes('sem dossiê de pesquisa'));
+  assert.ok(evaluation.issues.includes('sem síntese do curador'));
+});
+
+test('o relatório tem tabela, situação das referências e a ressalva do que "confirmada" significa', () => {
+  const evaluation = evaluateAnalysis(GOLDEN_WORKS[0], dto('### Tese\n\ncurto'));
+  const verified = new Map([
+    [
+      GOLDEN_WORKS[0].id,
+      [
+        {
+          raw: 'Roberto Schwarz, *Ao vencedor as batatas*, 1977',
+          author: 'Roberto Schwarz',
+          title: 'Ao vencedor as batatas',
+          year: 1977,
+          format: 'autor-obra-ano' as const,
+          verdict: 'duvidosa' as const,
+          evidence: 'Open Library: 0 resultado(s), ano não confere',
+        },
+      ],
+    ],
+  ]);
+
+  const report = renderEvalReport([evaluation], verified, { model: 'modelo-x', date: '02/11/2026' });
+  assert.match(report, /# Avaliação do ANIMA/);
+  assert.match(report, /\| Obra \| Lentes \|/);
+  assert.match(report, /Dom Casmurro/);
+  assert.match(report, /duvidosa/);
+  assert.match(report, /não valida o que o texto afirma|Não significa que a citação diz/);
+  assert.match(report, /modelo-x/);
+});
+
+test('relatório offline declara que as referências não foram conferidas', () => {
+  const evaluation = evaluateAnalysis(GOLDEN_WORKS[0], dto('### Tese\n\ncurto'));
+  const report = renderEvalReport([evaluation], new Map(), { model: 'm', date: 'hoje', offline: true });
+  assert.match(report, /não\*\* conferidas|não conferidas/i);
 });

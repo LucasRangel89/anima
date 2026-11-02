@@ -34,6 +34,11 @@ site/
 # relatórios de avaliação (locais, dependem do modelo que você usa)
 eval/
 
+# relatórios de avaliação de qualidade (gerados com modelo real)
+eval-report.md
+eval-report-offline.md
+eval-report.json
+
 # e2e (Playwright)
 playwright-report/
 test-results/

@@ -131,6 +131,22 @@ A profundidade também define o teto de tokens de cada etapa (dossiê, especiali
 - **Exportação** — `.md`, cópia para a área de transferência, impressão/PDF e **cofre para o Obsidian**.
 - **Perguntas de acompanhamento** — ao fim do relatório, perguntas respondidas com o dossiê e as lentes já geradas (uma chamada ao modelo, sem nova pesquisa). As respostas ficam salvas na análise.
 
+### Avaliar a qualidade do que sai (`npm run eval`)
+
+Os testes provam que o pipeline funciona; não provam que o texto é bom. `npm run eval` roda **cinco obras de
+referência** (livro brasileiro, clássico traduzido, filme, série e jogo) num modelo real e escreve
+`eval-report.md`:
+
+| Mede | Como | O que fazer com o sinal |
+| --- | --- | --- |
+| **Forma** | palavras por lente na faixa da profundidade (±25%), seção `### Limites e verificações`, quantidade de † | lente curta demais costuma ser lente genérica |
+| **Referências** | cada `Autor, *Obra*, ano` e `Autor (ano)` conferido na Open Library e no Crossref | `duvidosa` pede conferência manual antes de citar |
+| **Cobertura** | o relatório tem dossiê, síntese e todas as lentes pedidas | buraco aqui é bug, não estilo |
+
+Nada reprova automaticamente: o relatório aponta e você decide. `--offline` pula a conferência de referências;
+`--mock` roda o encanamento sem custo (e o relatório diz que não vale como avaliação). Fora do `npm test` e do
+CI de propósito: gasta cota real.
+
 ### Comparar duas obras
 
 A rota `/comparar` lê dois relatórios prontos e escreve **uma** leitura cruzada, em quatro seções: o que
@@ -326,6 +342,7 @@ Cobertura de testes: pipeline completo (mock), fila, cancelamento, retomada, fal
 - **`tests/budget.test.ts`** prova que a estimativa de tokens é conservadora, que a redução é determinística e que nenhum prompt passa do contexto configurado.
 - **`tests/fallback.test.ts`** sobe um servidor que devolve 429 com `Retry-After` de 15 minutos e verifica que a análise **termina com o modelo alternativo** (e que, sem alternativo, falha rápido e com mensagem clara — sem ficar horas esperando).
 - **`tests/eval.test.ts`** protege a própria régua: contagem de palavras, faixa por profundidade, seção "Limites e verificações" e a verificação de referências — que **nunca** transforma "sem rede" ou "outro autor com o mesmo ano" em "confirmada".
+- **`tests/eval.test.ts`** cobre a régua de qualidade: contagem de palavras, seção obrigatória, marca †, extração de referências nos dois formatos e conferência contra Open Library/Crossref com respostas simuladas — inclusive o caso em que a base está fora do ar, que **nunca** vira "confirmada".
 - **e2e com Playwright** (`tests/e2e/`): navegador de verdade percorrendo o caminho principal — formulário, relatório, pergunta de acompanhamento, download do cofre Obsidian, tema, `/comparar` (gerar, recarregar, baixar e remover). Roda no CI (`npm run e2e` localmente), com provedor mock e store em memória.
 - **CI no GitHub Actions** (`.github/workflows/ci.yml`): tipos, lint, testes com o contrato do Prisma rodando de verdade, auditoria de UI, build e **e2e** — a cada push e pull request.
 
