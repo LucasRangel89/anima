@@ -17,10 +17,29 @@ export interface LLMRequest {
   label: string;
 }
 
+/** Tokens informados pelo provedor (ou estimados, no caso do mock). */
+export interface LLMUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  /** `true` quando os números não vieram do provedor. */
+  estimated?: boolean;
+}
+
+export interface LLMCompletion {
+  text: string;
+  usage?: LLMUsage;
+}
+
 export interface LLM {
   readonly provider: 'openai' | 'zai' | 'mock';
   readonly model: string;
-  complete(req: LLMRequest): Promise<string>;
+  complete(req: LLMRequest): Promise<LLMCompletion>;
+  /**
+   * Mesmo provedor/cliente com outro modelo. Usado para o fallback em 429 persistente
+   * (LLM_FALLBACK_MODEL) e na troca manual de modelo. O mock não implementa.
+   */
+  withModel?(model: string): LLM;
 }
 
 /** Erro de API com status HTTP, para decidir retry e backoff. */
@@ -34,6 +53,20 @@ export class LLMError extends Error {
     this.name = 'LLMError';
   }
 }
+
+/** `Retry-After` pode vir em segundos ("30") ou como data HTTP ("Wed, 21 Oct 2015 07:28:00 GMT"). */
+export function parseRetryAfter(header: string | null, now: number = Date.now()): number | undefined {
+  if (!header) return undefined;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return seconds > 0 ? seconds * 1000 : undefined;
+  const date = Date.parse(header);
+  if (Number.isNaN(date)) return undefined;
+  const diff = date - now;
+  return diff > 0 ? diff : undefined;
+}
+
+/** Acima disto, esperar não é aceitável: é melhor tentar o modelo alternativo e avisar o usuário. */
+export const MAX_RETRY_AFTER_MS = 60_000;
 
 export function isRateLimitError(error: unknown): boolean {
   if (error instanceof LLMError) return error.status === 429;
@@ -85,10 +118,10 @@ export function getSystemStatus(env: NodeJS.ProcessEnv = process.env): BaseSyste
 
 /* ───────────────────────── OpenAI-compatível ───────────────────────── */
 
-function createOpenAICompatible(env: NodeJS.ProcessEnv): LLM {
+function createOpenAICompatible(env: NodeJS.ProcessEnv, overrideModel?: string): LLM {
   const baseUrl = (env.LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
   const apiKey = env.LLM_API_KEY;
-  const model = env.LLM_MODEL || 'gpt-4o-mini';
+  const model = overrideModel || env.LLM_MODEL || 'gpt-4o-mini';
 
   return {
     provider: 'openai',
@@ -118,20 +151,35 @@ function createOpenAICompatible(env: NodeJS.ProcessEnv): LLM {
 
       if (!res.ok) {
         const detail = (await res.text().catch(() => '')).slice(0, 300);
-        const retryAfter = Number(res.headers.get('retry-after'));
         throw new LLMError(
           `LLM respondeu ${res.status}${detail ? `: ${detail}` : ''}`,
           res.status,
-          Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : undefined
+          parseRetryAfter(res.headers.get('retry-after'))
         );
       }
 
       const data = (await res.json().catch(() => null)) as {
         choices?: Array<{ message?: { content?: string | null }; finish_reason?: string }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       } | null;
       const content = data?.choices?.[0]?.message?.content?.trim();
       if (!content) throw new LLMError('Resposta vazia do modelo.');
-      return content;
+
+      // `usage` é opcional na prática (provedores compatíveis variam); quando falta, o orquestrador estima.
+      const u = data?.usage;
+      return {
+        text: content,
+        usage: u
+          ? {
+              promptTokens: u.prompt_tokens,
+              completionTokens: u.completion_tokens,
+              totalTokens: u.total_tokens,
+            }
+          : undefined,
+      };
+    },
+    withModel(nextModel) {
+      return createOpenAICompatible(env, nextModel);
     },
   };
 }
@@ -140,7 +188,14 @@ function createOpenAICompatible(env: NodeJS.ProcessEnv): LLM {
 
 function createZai(): LLM {
   let clientPromise: Promise<{
-    chat: { completions: { create: (args: unknown) => Promise<{ choices: Array<{ message?: { content?: string } }> }> } };
+    chat: {
+      completions: {
+        create: (args: unknown) => Promise<{
+          choices: Array<{ message?: { content?: string } }>;
+          usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+        }>;
+      };
+    };
   }> | null = null;
 
   const getClient = () => {
@@ -165,7 +220,16 @@ function createZai(): LLM {
       });
       const content = completion.choices[0]?.message?.content?.trim();
       if (!content) throw new LLMError('Resposta vazia do modelo.');
-      return content;
+      return {
+        text: content,
+        usage: completion.usage
+          ? {
+              promptTokens: completion.usage.prompt_tokens,
+              completionTokens: completion.usage.completion_tokens,
+              totalTokens: completion.usage.total_tokens,
+            }
+          : undefined,
+      };
     },
   };
 }
@@ -175,6 +239,10 @@ function createZai(): LLM {
 function createMock(env: NodeJS.ProcessEnv): LLM {
   const failing = new Set((env.MOCK_FAIL_LABELS ?? '').split(',').map((s) => s.trim()).filter(Boolean));
   const delay = Number(env.MOCK_DELAY_MS ?? 250);
+  // Multiplicador do tamanho do texto gerado. Serve para demonstrar e testar o orçamento de contexto
+  // sem depender de um provedor real: MOCK_TEXT_REPEAT=300 simula um dossiê enorme.
+  const repeat = Math.max(1, Math.min(1_000, Math.floor(Number(env.MOCK_TEXT_REPEAT ?? 1) || 1)));
+  const grow = (text: string) => (repeat === 1 ? text : Array.from({ length: repeat }, () => text).join('\n\n'));
 
   return {
     provider: 'mock',
@@ -186,7 +254,7 @@ function createMock(env: NodeJS.ProcessEnv): LLM {
       const work = /Obra[^:]*:\s*"([^"]+)"/.exec(user)?.[1] ?? 'a obra';
 
       if (label === 'pesquisador') {
-        return [
+        const text = [
           '**Identificação:** obra fictícia para demonstração (confiança: alta)',
           '',
           '## Ficha da obra',
@@ -199,8 +267,10 @@ function createMock(env: NodeJS.ProcessEnv): LLM {
           '## Lacunas e confiança',
           '- Todo o conteúdo é fictício.',
         ].join('\n');
+        const grown = grow(text);
+        return { text: grown, usage: estimateMockUsage(user, grown) };
       }
-      return [
+      const text = [
         `### Análise de demonstração (${label})`,
         '',
         `Este texto é gerado pelo provedor **mock** para ilustrar o relatório de *${work}*. Ele não contém análise real.`,
@@ -213,7 +283,24 @@ function createMock(env: NodeJS.ProcessEnv): LLM {
         '### Limites e verificações',
         '- Conteúdo fictício; confiança: nenhuma.',
       ].join('\n');
+      const grown = grow(text);
+      return { text: grown, usage: estimateMockUsage(user, grown) };
     },
+  };
+}
+
+/**
+ * O mock simula o formato de `usage` para que o caminho de contabilização seja exercitado nos testes.
+ * A marca `estimated` é honesta: não são tokens reais de um tokenizador.
+ */
+function estimateMockUsage(prompt: string, completion: string): LLMUsage {
+  const promptTokens = Math.ceil((prompt.length + 400) / 4);
+  const completionTokens = Math.ceil(completion.length / 4);
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens,
+    estimated: true,
   };
 }
 

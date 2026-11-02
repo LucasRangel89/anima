@@ -281,3 +281,60 @@ test('findLatestCompleted reaproveita análise equivalente ignorando caixa e ace
   // recorte diferente não reaproveita
   assert.equal(await store.findLatestCompleted('cem anos de solidao', 'book', 'standard', null, 'Capítulo 1'), null);
 });
+
+/* ───────────────────────── Fase 1: contexto, tokens e fallback ───────────────────────── */
+
+test('análise registra chamadas e tokens por etapa (usage persistido)', async () => {
+  const { row } = await startAnalysis({ ...input, depth: 'brief', agents: ['thematic', 'structural'] });
+  await waitForRun(row.id);
+
+  const dto = toAnalysisDTO((await store.get(row.id))!);
+  assert.ok(dto.usage, 'o relatório precisa registrar o custo da análise');
+  assert.equal(dto.usage.calls, 4, 'pesquisador + 2 especialistas + síntese');
+  assert.ok(dto.usage.totalTokens > 0);
+  assert.equal(dto.usage.estimated, true, 'o mock informa estimativa, não tokens reais');
+  assert.deepEqual(Object.keys(dto.usage.byStage).sort(), ['especialista:structural', 'especialista:thematic', 'pesquisador', 'sintese']);
+  assert.equal(dto.usage.contextLimit, 32_768);
+});
+
+test('contexto pequeno não derruba a análise: reduz o dossiê e avisa no relatório', async () => {
+  const previous = process.env.LLM_CONTEXT_TOKENS;
+  const previousRepeat = process.env.MOCK_TEXT_REPEAT;
+  process.env.LLM_CONTEXT_TOKENS = '4096';
+  // O mock, por padrão, devolve texto curto: repetimos para simular um dossiê que estoura o contexto.
+  process.env.MOCK_TEXT_REPEAT = '300';
+  try {
+    const { row } = await startAnalysis({ ...input, depth: 'exhaustive', agents: ['thematic'] });
+    await waitForRun(row.id);
+
+    const dto = toAnalysisDTO((await store.get(row.id))!);
+    assert.equal(dto.status, 'completed', 'deve concluir mesmo com contexto apertado');
+    assert.ok(dto.usage);
+    assert.equal(dto.usage.contextLimit, 4_096);
+    assert.ok(dto.usage.notices.length > 0, 'precisa avisar que o contexto foi reduzido');
+    assert.match(dto.usage.notices.join('\n'), /(condensado|cortado)/);
+  } finally {
+    if (previous === undefined) delete process.env.LLM_CONTEXT_TOKENS;
+    else process.env.LLM_CONTEXT_TOKENS = previous;
+    if (previousRepeat === undefined) delete process.env.MOCK_TEXT_REPEAT;
+    else process.env.MOCK_TEXT_REPEAT = previousRepeat;
+  }
+});
+
+test('análise antiga sem usage continua legível (DTO devolve null)', async () => {
+  const { row } = await startAnalysis({ ...input, depth: 'brief', agents: ['thematic'] });
+  await waitForRun(row.id);
+  await store.update(row.id, { usage: null });
+  const dto = toAnalysisDTO((await store.get(row.id))!);
+  assert.equal(dto.usage, null);
+  assert.equal(dto.results.filter((r) => r.status === 'done').length, 1);
+});
+
+test('JSON de usage corrompido não quebra a leitura do relatório', async () => {
+  const { row } = await startAnalysis({ ...input, depth: 'brief', agents: ['thematic'] });
+  await waitForRun(row.id);
+  await store.update(row.id, { usage: '{isso não é json' });
+  const dto = toAnalysisDTO((await store.get(row.id))!);
+  assert.equal(dto.usage, null);
+  assert.equal(dto.status, 'completed');
+});

@@ -233,7 +233,9 @@ Uma linha por lente permite gravar progresso sem corrida de escrita e recuperar 
 | `ANIMA_STORE` | — | `memory` dispensa banco |
 | `LLM_PROVIDER` | auto | `openai` (qualquer API compatível), `zai`, `mock` |
 | `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | `api.openai.com/v1` / — / `gpt-4o-mini` | OpenAI, OpenRouter, Groq, Ollama, Gemini (endpoint OpenAI), GLM… |
-| `LLM_CONCURRENCY` | `3` | Chamadas simultâneas **globais**. Reduza em caso de 429 |
+| `LLM_FALLBACK_MODEL` | — | Modelo alternativo (mesmo endpoint) usado em 429 persistente |
+| `LLM_CONTEXT_TOKENS` | `32768` | Contexto do modelo; dossiê e síntese são reduzidos para caber, com aviso |
+| `LLM_CONCURRENCY` | `2` | Chamadas simultâneas **globais**. Use `1` em planos gratuitos |
 | `LLM_TIMEOUT_SECONDS` | `180` | Timeout por chamada |
 | `ANIMA_MAX_ACTIVE` | `3` | Análises simultâneas; o excedente vai para a fila |
 | `ANIMA_MAX_QUEUE` | `8` | Tamanho máximo da fila |
@@ -241,14 +243,26 @@ Uma linha por lente permite gravar progresso sem corrida de escrita e recuperar 
 | `TAVILY_API_KEY` | — | Resenhas e crítica de imprensa |
 | `NEXT_PUBLIC_SITE_URL` | `http://localhost:3000` | Metadados/Open Graph |
 
-O modelo precisa de contexto de pelo menos ~32k tokens (a síntese recebe as análises das lentes).
+O modelo precisa de contexto de pelo menos ~32k tokens (a síntese recebe as análises das lentes). Se o seu tiver menos, o ANIMA reduz o material, avisa no relatório e continua — nada quebra.
+
+### Provedores gratuitos, sem cartão
+
+O `.env.example` traz blocos prontos para **Gemini** (endpoint OpenAI-compatível), **Groq**, **OpenRouter** (`:free`) e **Ollama** (local). Três ressalvas que valem mais que qualquer preset:
+
+- **Os limites mudam.** Os números abaixo foram conferidos na documentação oficial em 02/11/2026; os links são a fonte viva.
+- **Groq**: `openai/gpt-oss-120b` tem 30 req/min, 1.000 req/dia e **8.000 tokens/min** ([docs](https://console.groq.com/docs/rate-limits)). O teto por minuto é o que morde: uma análise Padrão (10 chamadas) já passa disso, então use **Panorama** e `LLM_CONCURRENCY=1`.
+- **OpenRouter** (`:free`, conta sem crédito comprado): 20 req/min e **50 req/dia** ([docs](https://openrouter.ai/docs/api-reference/limits)) — cerca de 5 análises Padrão por dia.
+- **Gemini**: a camada gratuita existe, mas os limites variam por modelo e são mostrados na sua conta ([AI Studio](https://aistudio.google.com/rate-limit)); o ANIMA não fixa números que a Google não publica.
+- **Ollama**: sem limite e sem chave; o custo é a RAM da sua máquina.
+
+**Custo em chamadas:** cada análise faz `lentes + 2` chamadas (dossiê + uma por lente + síntese). Panorama com 4 lentes = 6; Padrão com 8 = 10. O relatório mostra quantas chamadas e quantos tokens foram gastos, e avisa quando o contexto precisou ser reduzido.
 
 ---
 
 ## Qualidade
 
 ```bash
-npm test          # 74 testes (node:test)
+npm test          # 97 testes (node:test)
 npm run typecheck # tsc --noEmit
 npm run lint      # eslint
 npm run check     # os três em sequência
@@ -261,6 +275,8 @@ Cobertura de testes: pipeline completo (mock), fila, cancelamento, retomada, fal
 - **`tests/search-network.test.ts`** exercita `gatherSources` contra respostas reais gravadas dos quatro provedores abertos (extrato longo, provedor fora do ar, página de desambiguação, orçamento por profundidade) sem tocar a rede.
 - **`tests/llm-http.test.ts`** sobe um servidor HTTP local compatível com OpenAI e confere o que o cliente realmente envia (modelo, mensagens, `max_tokens`, autenticação), `Retry-After`, erros fatais × recuperáveis e resposta vazia.
 - **`tests/store-contract.test.ts`** roda a mesma suíte de contrato contra o store de memória **e** contra o Prisma. Na memória, sempre. No Prisma, quando `DATABASE_URL` e o client gerado estiverem disponíveis — caso contrário a suíte do banco é **pulada com motivo**, nunca passada em silêncio.
+- **`tests/budget.test.ts`** prova que a estimativa de tokens é conservadora, que a redução é determinística e que nenhum prompt passa do contexto configurado.
+- **`tests/fallback.test.ts`** sobe um servidor que devolve 429 com `Retry-After` de 15 minutos e verifica que a análise **termina com o modelo alternativo** (e que, sem alternativo, falha rápido e com mensagem clara — sem ficar horas esperando).
 
 ### `npm run doctor`
 

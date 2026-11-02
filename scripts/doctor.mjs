@@ -127,7 +127,14 @@ async function checkLLM() {
     add(FAIL, 'modelo', 'LLM_API_KEY vazia', 'preencha a chave do provedor ou use LLM_PROVIDER=mock');
     return;
   }
-  add(OK, 'modelo', `${provider} · modelo ${model} · ${baseUrl}`, null);
+  const contextTokens = Number(process.env.LLM_CONTEXT_TOKENS) || 32_768;
+  const fallback = process.env.LLM_FALLBACK_MODEL?.trim();
+  add(
+    OK,
+    'modelo',
+    `${provider} · modelo ${model} · contexto ${contextTokens.toLocaleString('pt-BR')} tokens${fallback ? ` · fallback ${fallback}` : ''}`,
+    fallback ? null : 'sem LLM_FALLBACK_MODEL: um 429 persistente encerra a análise (com mensagem clara)'
+  );
 
   if (OFFLINE) return;
 

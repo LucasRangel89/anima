@@ -20,6 +20,7 @@ const base: AnalysisRow = {
   error: null,
   durationMs: null,
   model: 'gpt-4o-mini',
+  usage: null,
   createdAt: new Date('2026-01-01T10:00:00Z'),
   updatedAt: new Date('2026-01-01T10:01:00Z'),
   results: [{ agentKey: 'thematic', status: 'pending', content: null, error: null, durationMs: null }],

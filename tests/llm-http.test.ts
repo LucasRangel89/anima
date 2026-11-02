@@ -7,7 +7,16 @@
 import { afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { createLLM, isFatalLLMError, isRateLimitError, LLMError, resolveProvider, getSystemStatus } from '../src/lib/anima/llm';
+import {
+  createLLM,
+  isFatalLLMError,
+  isRateLimitError,
+  LLMError,
+  MAX_RETRY_AFTER_MS,
+  parseRetryAfter,
+  resolveProvider,
+  getSystemStatus,
+} from '../src/lib/anima/llm';
 
 interface Captured {
   url: string;
@@ -79,7 +88,7 @@ const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv =>
 
 test('envia exatamente o que o provedor OpenAI-compatível espera', async () => {
   const llm = createLLM(env());
-  const content = await llm.complete({
+  const { text, usage } = await llm.complete({
     system: 'PROMPT DE SISTEMA',
     user: 'MENSAGEM DO USUÁRIO',
     maxTokens: 1234,
@@ -87,7 +96,8 @@ test('envia exatamente o que o provedor OpenAI-compatível espera', async () => 
     label: 'teste',
   });
 
-  assert.equal(content, 'resposta do modelo'); // trim aplicado
+  assert.equal(text, 'resposta do modelo'); // trim aplicado
+  assert.equal(usage, undefined, 'sem bloco usage na resposta, o cliente não inventa números');
   assert.equal(captured.length, 1);
   const call = captured[0];
   assert.equal(call.url, '/v1/chat/completions');
@@ -218,4 +228,68 @@ test('resolveProvider e getSystemStatus refletem a configuração', () => {
   const comChave = getSystemStatus(envOf({ LLM_PROVIDER: 'openai', LLM_API_KEY: 'x', TAVILY_API_KEY: 't' }));
   assert.equal(comChave.configured, true);
   assert.equal(comChave.search, 'tavily');
+});
+
+test('usage do provedor é repassado sem arredondar nem inventar', async () => {
+  responder = () => ({
+    status: 200,
+    body: {
+      choices: [{ message: { content: 'ok' } }],
+      usage: { prompt_tokens: 1234, completion_tokens: 56, total_tokens: 1290 },
+    },
+  });
+  const { usage } = await createLLM(env()).complete({ system: 's', user: 'u', label: 't' });
+  assert.deepEqual(usage, { promptTokens: 1234, completionTokens: 56, totalTokens: 1290 });
+});
+
+test('withModel troca só o modelo e mantém endpoint/chave', async () => {
+  const llm = createLLM(env({ LLM_MODEL: 'principal' }));
+  const alt = llm.withModel?.('alternativo');
+  assert.ok(alt, 'o cliente OpenAI-compatível precisa suportar fallback');
+  assert.equal(alt.model, 'alternativo');
+  assert.equal(alt.provider, 'openai');
+
+  await alt.complete({ system: 's', user: 'u', label: 't' });
+  assert.equal(captured[0].body.model, 'alternativo');
+  assert.equal(captured[0].url, '/v1/chat/completions');
+  assert.equal(captured[0].auth, 'Bearer chave-de-teste');
+  assert.equal(createLLM({ LLM_PROVIDER: 'mock' } as unknown as NodeJS.ProcessEnv).withModel, undefined);
+});
+
+test('parseRetryAfter entende segundos e data HTTP, e ignora lixo', () => {
+  assert.equal(parseRetryAfter('30'), 30_000);
+  assert.equal(parseRetryAfter('0'), undefined);
+  assert.equal(parseRetryAfter(null), undefined);
+  assert.equal(parseRetryAfter('abc'), undefined);
+
+  const now = Date.parse('2026-11-02T12:00:00Z');
+  assert.equal(parseRetryAfter('Mon, 02 Nov 2026 12:00:20 GMT', now), 20_000);
+  assert.equal(parseRetryAfter('Mon, 02 Nov 2026 11:00:00 GMT', now), undefined, 'data no passado não vira espera');
+  assert.ok(MAX_RETRY_AFTER_MS > 0);
+});
+
+test('429 com espera longa é identificável como "não vale esperar" (gatilho do fallback)', async () => {
+  responder = () => ({
+    status: 429,
+    headers: { 'retry-after': '900' },
+    body: { error: { message: 'rate limit' } },
+  });
+  const llm = createLLM(env());
+  await assert.rejects(
+    () => llm.complete({ system: 's', user: 'u', label: 't' }),
+    (error: unknown) => {
+      assert.ok(error instanceof LLMError);
+      assert.equal(error.retryAfterMs, 900_000);
+      assert.ok((error.retryAfterMs ?? 0) > MAX_RETRY_AFTER_MS);
+      return true;
+    }
+  );
+});
+
+test('o provedor mock devolve usage estimado e marca como estimado', async () => {
+  const mock = createLLM({ LLM_PROVIDER: 'mock', MOCK_DELAY_MS: '0' } as unknown as NodeJS.ProcessEnv);
+  const { text, usage } = await mock.complete({ system: 's', user: 'Obra analisada: "X"', label: 'sintese' });
+  assert.ok(text.length > 0);
+  assert.equal(usage?.estimated, true);
+  assert.ok((usage?.totalTokens ?? 0) > 0);
 });

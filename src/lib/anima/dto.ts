@@ -8,6 +8,7 @@ import type {
   AnalysisStatus,
   Depth,
   SourceDTO,
+  UsageDTO,
   WorkKind,
 } from './types';
 import { AGENT_KEYS, DEPTHS, SOURCE_ORIGINS, WORK_KINDS } from './types';
@@ -66,6 +67,27 @@ function parseSources(raw: string | null): SourceDTO[] {
   }
 }
 
+/** JSON tolerante: uma análise antiga (ou um JSON corrompido) simplesmente não mostra o bloco de uso. */
+export function parseUsage(raw: string | null): UsageDTO | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<UsageDTO>;
+    if (typeof parsed.calls !== 'number' || !parsed.byStage) return null;
+    return {
+      calls: parsed.calls,
+      promptTokens: parsed.promptTokens ?? 0,
+      completionTokens: parsed.completionTokens ?? 0,
+      totalTokens: parsed.totalTokens ?? 0,
+      estimated: Boolean(parsed.estimated),
+      byStage: parsed.byStage,
+      contextLimit: parsed.contextLimit ?? 0,
+      notices: Array.isArray(parsed.notices) ? parsed.notices : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 const asKind = (v: string): WorkKind => ((WORK_KINDS as readonly string[]).includes(v) ? (v as WorkKind) : 'auto');
 const asDepth = (v: string): Depth => ((DEPTHS as readonly string[]).includes(v) ? (v as Depth) : 'standard');
 
@@ -106,6 +128,7 @@ export function toAnalysisDTO(row: AnalysisRow, ctx: DtoContext = {}): AnalysisD
     error: row.error,
     durationMs: row.durationMs,
     model: row.model,
+    usage: parseUsage(row.usage),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     results,
