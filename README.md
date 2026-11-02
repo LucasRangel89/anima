@@ -128,7 +128,23 @@ A profundidade também define o teto de tokens de cada etapa (dossiê, especiali
 - **Dossiê do Pesquisador** — ficha da obra, sinopse com desfecho, personagens, elementos formais, contexto, recepção separando imprensa e academia, estado da crítica e lacunas.
 - **As lentes escolhidas** — Markdown com subtítulos específicos da obra e a seção obrigatória `### Limites e verificações` (confiança, o que checar, lente não explorada).
 - **Fontes** — lista com tipo, autoria, ano, confiabilidade e nota (ex.: “42 citações”).
-- **Exportação** — `.md`, cópia para a área de transferência e impressão/PDF.
+- **Exportação** — `.md`, cópia para a área de transferência, impressão/PDF e **cofre para o Obsidian**.
+
+### Exportar para o Obsidian
+
+O botão **Para o Obsidian** baixa um `.zip` com **uma nota por lente**, mais o índice e o dossiê, ligadas por
+`[[wikilinks]]`. Descompacte dentro do seu cofre e o Obsidian monta o grafo sozinho:
+
+```
+Dom Casmurro.md                    ← índice: síntese, links para as notas, fontes
+Dom Casmurro - Dossiê.md
+Dom Casmurro - Estrutura.md        ← uma por lente executada
+Dom Casmurro - Personagens.md …
+```
+
+Cada nota tem frontmatter (`tags`, `obra`, `lente`, `papel`, `data`, `modelo`) para filtrar por tag ou por
+obra, e acentos são preservados. O zip não usa compressão nem dependência externa (`src/lib/anima/zip.ts`),
+e nomes de arquivo são limpos do que o Windows e o próprio Obsidian recusam (`:`, `?`, `#`, `[[`).
 
 **Marcação de incerteza:** toda afirmação factual que **não** vem do dossiê leva `†`. As análises só fazem citação literal quando o trecho está no dossiê.
 
@@ -262,7 +278,7 @@ O `.env.example` traz blocos prontos para **Gemini** (endpoint OpenAI-compatíve
 ## Qualidade
 
 ```bash
-npm test          # 125 testes (node:test)
+npm test          # 137 testes (node:test)
 npm run typecheck # tsc --noEmit
 npm run lint      # eslint
 npm run check     # os três em sequência
