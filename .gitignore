@@ -27,3 +27,6 @@ __pycache__/
 
 # uploads temporários (não fazem parte do app)
 /files/
+
+# site gerado (publicado pelo workflow Pages)
+site/
