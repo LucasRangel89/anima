@@ -7,6 +7,7 @@ import type {
   AnalysisSummaryDTO,
   AnalysisStatus,
   Depth,
+  FollowUpDTO,
   SourceDTO,
   UsageDTO,
   WorkKind,
@@ -50,6 +51,38 @@ export function computeProgress({ status, researchStatus, synthesisStatus, resul
 
   return Math.min(99, Math.round(research + agents + synthesis));
 }
+
+/**
+ * Perguntas de acompanhamento guardadas como JSON. Registro malformado é descartado, não derruba a análise —
+ * o relatório continua legível mesmo se uma linha antiga estiver corrompida.
+ */
+function parseFollowUps(raw: string | null): FollowUpDTO[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (item): item is FollowUpDTO =>
+          Boolean(item) &&
+          typeof (item as FollowUpDTO).id === 'string' &&
+          typeof (item as FollowUpDTO).question === 'string' &&
+          typeof (item as FollowUpDTO).answer === 'string'
+      )
+      .map((item) => ({
+        id: item.id,
+        question: item.question,
+        answer: item.answer,
+        model: item.model ?? null,
+        createdAt: item.createdAt,
+        durationMs: item.durationMs ?? null,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export { parseFollowUps };
 
 function parseSources(raw: string | null): SourceDTO[] {
   if (!raw) return [];
@@ -131,6 +164,7 @@ export function toAnalysisDTO(row: AnalysisRow, ctx: DtoContext = {}): AnalysisD
     usage: parseUsage(row.usage),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    followUps: parseFollowUps(row.followUps),
     results,
     progress: computeProgress({
       status: row.status,

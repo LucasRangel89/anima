@@ -245,6 +245,7 @@ function dtoWith(content: string): AnalysisDTO {
     })),
     progress: 100,
     queuePosition: null,
+    followUps: [],
   };
 }
 

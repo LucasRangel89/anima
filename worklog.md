@@ -234,3 +234,40 @@ de YAML e de validade do zip.
 
 - Observação do cofre aberto no aplicativo Obsidian: não há Obsidian neste ambiente. O que dá para provar
   sem ele — estrutura, links, frontmatter e validade do arquivo — está provado.
+
+---
+
+## Fase 3, item 2 — perguntas de acompanhamento
+
+**Plano (5 linhas, antes de começar).** (1) responder com o material já pago, sem nova pesquisa; (2) uma
+chamada por pergunta, com prompt fechado e marcação †; (3) persistir na própria análise (`followUps` como
+JSON), para sobreviver a recarregar; (4) sugestões derivadas do que a análise cobriu; (5) testes de contexto,
+de rede (429, fallback, resposta vazia) e da rota (validação, 404, 409, teto, remoção).
+
+**O que foi construído**
+
+- `src/lib/anima/follow-up.ts`: monta o contexto (dossiê + lentes concluídas) com **orçamento de tokens**
+  (`fitTogether`, reserva de 900 tokens de resposta) e faz **uma** chamada, com retry em 429 e fallback para
+  `LLM_FALLBACK_MODEL`. Resposta vazia é erro — nunca uma pergunta "respondida" com nada.
+- `src/lib/anima/follow-up-suggestions.ts`: sugestões no cliente, sem rede, derivadas das lentes presentes.
+- `POST/DELETE /api/analyses/[id]/questions`: validação zod, 404, 409 enquanto a análise não terminou, teto de
+  30 perguntas, remoção por id. Duas perguntas simultâneas são serializadas por análise para não perder escrita.
+- `followUps` na análise (coluna nullable + JSON no banco, campo no DTO, parser tolerante a lixo).
+- `src/components/anima/follow-ups.tsx`: sugestões, campo com Enter/Shift+Enter, estado de espera, remoção,
+  data/modelo/duração por resposta.
+
+**Verificado**
+
+- **17 testes novos**: 11 em `tests/follow-up.test.ts` (contexto só com lentes concluídas; redução dentro do
+  orçamento com aviso; mensagem com recorte e pergunta; sugestões dependentes do material; 429 refeito;
+  fallback usado uma vez; 401 não repetido; resposta vazia rejeitada; registro com id único) e 6 em
+  `tests/follow-up-route.test.ts` (201 + persistência, 400 com mensagem, 404, 409, teto, remoção, JSON
+  corrompido).
+- Suíte completa: **154 testes (153 passam, 1 pulado — Prisma local)**; typecheck e lint limpos.
+
+**Não verificado**
+
+- Resposta de um modelo real a uma pergunta real: a rede do sandbox não alcança provedor nenhum. O caminho
+  está provado com o mock e com LLM falso controlado.
+- Interface clicada em navegador: segue sem navegador executável aqui; o que dá para provar sem ele (handler,
+  estados, persistência) está provado.

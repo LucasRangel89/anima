@@ -36,6 +36,7 @@ import {
 import { isBusy, useAnalysis } from '@/hooks/use-analysis';
 import { cn } from '@/lib/utils';
 import { SectionCard, StateIcon, type SectionState } from './section-card';
+import { FollowUps } from './follow-ups';
 
 /** Cronômetro isolado: só ele re-renderiza a cada segundo. */
 function Elapsed({ since }: { since: number }) {
@@ -492,6 +493,8 @@ export function AnalysisView({ id }: { id: string }) {
               />
             );
           })}
+
+          {a.status === 'completed' && <FollowUps analysis={a} />}
 
           {a.usage && a.usage.calls > 0 && (
             <details className="mb-4 rounded-xl border bg-card/60 px-4 py-3 text-sm print:open">
