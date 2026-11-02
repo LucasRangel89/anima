@@ -342,8 +342,24 @@ de verdade, um teto para uso publicado e a decisão do Prisma escrita — sem ex
   e 0 de estrutura. Um defeito encontrado e corrigido: o `<title>` de `/comparar` saía duplicado
   ("· ANIMA · ANIMA") na primeira versão.
 
+### O que quebrou no caminho (e como foi corrigido)
+
+- **`e2e` vermelho por hidratação**: o `webServer` subia `next dev` no runner e o clique chegava antes de o React
+  assumir a página. Passou a rodar **build de produção** (`next build && next start`), com `expect` de 30s e
+  `toPass` de 120s; o spec de leitura espera `window.next.version` antes de interagir.
+- **Seletores ambíguos**: `getByText(/A × B/)` casava com dois elementos (título e grupo) → `summary
+  p.font-medium`; o link "Método" existe no cabeçalho **e** no rodapé → escopado em
+  `getByRole('navigation', { name: 'Principal' })`.
+- **Log do CI ilegível**: as anotações do job cortavam no meio do `next build`. O build virou passo próprio,
+  o Playwright passou a só iniciar o servidor (`E2E_SKIP_BUILD=1`) e o log agora filtra `✘|Error:|Timeout|
+  waiting for|was not able to` antes de publicar as anotações.
+
+### Verificado
+
+- **`e2e` verde no CI** (run `41470249737`): `verificar`, `build` e `e2e` concluídos com sucesso. Localmente o
+  Chromium continua indisponível (CDN bloqueada), então a execução é sempre do GitHub Actions.
+
 ### Não verificado
 
-- **Execução do e2e**: escrita e configurada, mas o Chromium não pôde ser baixado neste sandbox. A prova é o
-  job do CI — se falhar, volto a ele.
+- **`e2e` local**: o sandbox não baixa navegador; a prova é o job do CI.
 - Troca do Prisma: deliberadamente não feita.
