@@ -4,10 +4,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não publicado]
 
-Foco: **custo zero e robustez (Fase 1)**.
+Foco: **qualidade mensurável (Fase 2)**.
 
 ### Adicionado
 
+- **`npm run eval`**: roda cinco obras de referência (livro brasileiro, romance estrangeiro, filme, série, jogo) contra o modelo configurado e gera `eval/relatorio.md` com forma (faixa de palavras por profundidade, seção "Limites e verificações", marcadores †), cobertura e referências conferidas na Open Library e no Crossref. Fica **fora** do `npm test` e do CI porque custa chamadas; `--mock` ensaia o encanamento sem valer como medida.
+- **Verificador de referências** (`src/lib/anima/eval.ts`): extrai "Autor, *Obra*, ano" e "Autor (ano)" e classifica cada uma como `confirmada`, `duvidosa` ou `nao_verificada`. Exige autor, título e ano compatíveis — rede fora do ar ou homônimo no mesmo ano nunca viram confirmação.
 - **`LLM_CONTEXT_TOKENS`** (padrão conservador `32768`): antes de cada etapa, o ANIMA estima tokens, reserva a saída e reduz o dossiê/análises para caber. Redução **determinística** em dois passos — condensar (títulos, listas e primeira frase de cada parágrafo) e, se ainda não couber, cortar cabeça/cauda com marcador explícito.
 - **Avisos de contexto no relatório**: quando algo é reduzido, a análise registra o que aconteceu e o que fazer. Diagnóstico antecipado quando o contexto configurado é pequeno para a profundidade pedida.
 - **`LLM_FALLBACK_MODEL`**: em 429 persistente (ou `Retry-After` acima de 60 s), a chamada é refeita uma única vez com o modelo alternativo; a análise conclui e o relatório diz qual modelo escreveu.
