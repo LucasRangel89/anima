@@ -1,35 +1,28 @@
-// ANIMA — API: reexecução do pesquisador e/ou de especialistas com falha
+// ANIMA — API: retomar análise (pesquisa, especialistas com falha/escolhidos e/ou síntese)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { retryAnalysis } from '@/lib/anima/orchestrator';
-import { AGENT_KEYS, type AgentKey } from '@/lib/anima/types';
+import { firstIssue, retrySchema } from '@/lib/anima/validation';
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const STATUS = { not_found: 404, busy: 409, nothing: 400 } as const;
+
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const body = await req.json().catch(() => null);
-
-    let agentKeys: AgentKey[] | undefined;
-    if (Array.isArray(body?.agentKeys) && body.agentKeys.length > 0) {
-      const valid = body.agentKeys.filter((k: unknown) =>
-        AGENT_KEYS.includes(k as AgentKey)
-      ) as AgentKey[];
-      if (valid.length === 0) {
-        return NextResponse.json({ error: 'agentKeys inválidos.' }, { status: 400 });
-      }
-      agentKeys = valid;
+    const parsed = retrySchema.safeParse((await req.json().catch(() => null)) ?? {});
+    if (!parsed.success) {
+      return NextResponse.json({ error: firstIssue(parsed.error) }, { status: 400 });
     }
-
-    const result = await retryAnalysis(id, agentKeys);
+    const result = await retryAnalysis(id, parsed.data);
     if (!result.ok) {
-      return NextResponse.json({ error: result.message }, { status: 400 });
+      return NextResponse.json({ error: result.message }, { status: STATUS[result.code] });
     }
     return NextResponse.json({ ok: true, message: result.message });
   } catch (error) {
     console.error('[POST /api/analyses/:id/retry]', error);
-    return NextResponse.json({ error: 'Falha ao reexecutar agentes.' }, { status: 500 });
+    return NextResponse.json({ error: 'Falha ao reexecutar.' }, { status: 500 });
   }
 }

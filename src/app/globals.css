@@ -8,14 +8,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-inter);
   --font-serif: var(--font-fraunces);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -60,14 +52,6 @@
   --border: oklch(0.905 0.012 72);
   --input: oklch(0.905 0.012 72);
   --ring: oklch(0.68 0.11 55);
-  --sidebar: oklch(0.985 0.004 85);
-  --sidebar-foreground: oklch(0.26 0.015 55);
-  --sidebar-primary: oklch(0.55 0.125 50);
-  --sidebar-primary-foreground: oklch(0.985 0.005 85);
-  --sidebar-accent: oklch(0.945 0.035 80);
-  --sidebar-accent-foreground: oklch(0.38 0.08 50);
-  --sidebar-border: oklch(0.905 0.012 72);
-  --sidebar-ring: oklch(0.68 0.11 55);
 }
 
 .dark {
@@ -91,14 +75,6 @@
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 16%);
   --ring: oklch(0.6 0.1 60);
-  --sidebar: oklch(0.215 0.01 55);
-  --sidebar-foreground: oklch(0.93 0.008 80);
-  --sidebar-primary: oklch(0.78 0.135 70);
-  --sidebar-primary-foreground: oklch(0.2 0.02 55);
-  --sidebar-accent: oklch(0.3 0.04 60);
-  --sidebar-accent-foreground: oklch(0.88 0.06 75);
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: oklch(0.6 0.1 60);
 }
 
 @layer base {
@@ -159,8 +135,9 @@ html {
 
 /* Tipografia editorial para os relatórios em Markdown dos agentes */
 .anima-prose {
-  font-size: 0.9375rem;
-  line-height: 1.8;
+  font-size: 1rem;
+  line-height: 1.75;
+  max-width: 72ch;
   color: var(--foreground);
   opacity: 0.92;
 }
@@ -242,4 +219,38 @@ html {
 }
 .anima-prose td {
   @apply border px-2.5 py-1.5 align-top;
+}
+
+/* Acessibilidade: respeita a preferência por menos movimento */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Impressão / PDF: relatório limpo, todas as seções abertas */
+@media print {
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .paper-texture {
+    background-image: none !important;
+  }
+  .anima-prose {
+    max-width: none;
+    font-size: 11pt;
+  }
+  article,
+  section {
+    break-inside: avoid-page;
+    box-shadow: none !important;
+  }
 }

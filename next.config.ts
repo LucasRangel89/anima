@@ -1,12 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
-  /* config options here */
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  reactStrictMode: false,
+  reactStrictMode: true,
+  // A Z.ai SDK usa APIs de Node e é carregada sob demanda no servidor
+  serverExternalPackages: ["z-ai-web-dev-sdk"],
 };
 
 export default nextConfig;

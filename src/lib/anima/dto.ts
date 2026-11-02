@@ -1,51 +1,79 @@
-// ANIMA — conversão das linhas do Prisma para DTOs da API
+// ANIMA — conversão das linhas de persistência para DTOs da API.
 
-import type { Analysis, AgentResult } from '@prisma/client';
-import type { AgentKey, AgentResultDTO, AnalysisDTO, AnalysisSummaryDTO } from './types';
-import { AGENT_KEYS } from './types';
+import type {
+  AgentKey,
+  AgentResultDTO,
+  AnalysisDTO,
+  AnalysisSummaryDTO,
+  AnalysisStatus,
+  Depth,
+  SourceDTO,
+  WorkKind,
+} from './types';
+import { AGENT_KEYS, DEPTHS, WORK_KINDS } from './types';
+import type { AnalysisRow, AnalysisSummaryRow } from './store';
 
-type AnalysisWithResults = Analysis & { results: AgentResult[] };
-
-export function toAgentResultDTO(row: AgentResult): AgentResultDTO {
-  return {
-    agentKey: row.agentKey as AgentKey,
-    status: row.status as AgentResultDTO['status'],
-    content: row.content,
-    error: row.error,
-    durationMs: row.durationMs,
-  };
+function parseSources(raw: string | null): SourceDTO[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SourceDTO[]) : [];
+  } catch {
+    return [];
+  }
 }
 
-export function toAnalysisDTO(row: AnalysisWithResults): AnalysisDTO {
+const asKind = (v: string): WorkKind => ((WORK_KINDS as readonly string[]).includes(v) ? (v as WorkKind) : 'auto');
+const asDepth = (v: string): Depth => ((DEPTHS as readonly string[]).includes(v) ? (v as Depth) : 'standard');
+
+export function toAnalysisDTO(row: AnalysisRow): AnalysisDTO {
   const byKey = new Map(row.results.map((r) => [r.agentKey, r]));
-  // Garante a ordem canônica dos agentes e inclui pendentes ausentes
-  const results: AgentResultDTO[] = AGENT_KEYS.map((key) => {
+  // Agentes ausentes = análise gerada antes de o agente existir → "skipped"
+  const results: AgentResultDTO[] = AGENT_KEYS.map((key: AgentKey) => {
     const r = byKey.get(key);
     return r
-      ? toAgentResultDTO(r)
-      : { agentKey: key, status: 'pending', content: null, error: null, durationMs: null };
+      ? {
+          agentKey: key,
+          status: r.status as AgentResultDTO['status'],
+          content: r.content,
+          error: r.error,
+          durationMs: r.durationMs,
+        }
+      : { agentKey: key, status: 'skipped', content: null, error: null, durationMs: null };
   });
+
   return {
     id: row.id,
     title: row.title,
-    status: row.status as AnalysisDTO['status'],
+    hint: row.hint,
+    kind: asKind(row.kind),
+    depth: asDepth(row.depth),
+    status: row.status as AnalysisStatus,
     research: row.research,
     researchStatus: row.researchStatus as AnalysisDTO['researchStatus'],
+    sources: parseSources(row.sources),
+    synthesis: row.synthesis,
+    synthesisStatus: row.synthesisStatus as AnalysisDTO['synthesisStatus'],
     error: row.error,
     durationMs: row.durationMs,
+    model: row.model,
     createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
     results,
   };
 }
 
-export function toAnalysisSummaryDTO(row: AnalysisWithResults): AnalysisSummaryDTO {
+export function toAnalysisSummaryDTO(row: AnalysisSummaryRow): AnalysisSummaryDTO {
   return {
     id: row.id,
     title: row.title,
-    status: row.status as AnalysisSummaryDTO['status'],
+    hint: row.hint,
+    kind: asKind(row.kind),
+    depth: asDepth(row.depth),
+    status: row.status as AnalysisStatus,
     createdAt: row.createdAt.toISOString(),
     durationMs: row.durationMs,
-    doneAgents: row.results.filter((r) => r.status === 'done').length,
+    doneAgents: row.doneAgents,
     totalAgents: AGENT_KEYS.length,
   };
 }

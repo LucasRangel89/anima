@@ -1,0 +1,29 @@
+# dependências e build
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# banco local e logs
+db/*.db
+db/*.db-journal
+prisma/*.db
+prisma/*.db-journal
+*.log
+
+# python
+__pycache__/
+*.pyc
+
+# sistema
+.DS_Store
+
+# uploads temporários (não fazem parte do app)
+/files/

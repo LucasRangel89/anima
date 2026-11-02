@@ -81,3 +81,5 @@ streamlit run app.py
    modo "rascunho" (modelo menor) vs. "profundo".
 3. **Qualidade da pesquisa**: a precisão do dossiê limita a de todo o
    relatório. Prefira Tavily/SearchAPI em produção e sempre cite as fontes.
+
+> **Aviso (v0.3):** esta pasta é a referência histórica do blueprint v2.0 (6 especialistas). Os prompts atuais ficam em `src/lib/anima/prompts.ts` e não são espelhados aqui.
