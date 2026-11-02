@@ -1,8 +1,75 @@
 # Worklog — Projeto ANIMA
 
-## v0.3 — revisão estrutural (UX/UI, arquitetura, profundidade teórica)
-Rotas reais (`/`, `/analise/[id]`, `/metodo`), LLM independente do SDK Z.ai, persistência atrás de interface,
-concorrência global, Curador (síntese), 8 especialistas com repertório teórico, retomada de execuções interrompidas, testes.
+Diário de construção: o que foi feito, o que foi verificado e por que certas decisões foram tomadas.
 
-## v0.2 (histórico)
-MVP com 1 pesquisador + 6 especialistas, polling, histórico em SQLite e `python-reference/`.
+---
+
+## v0.4 — fontes, escopo, profundidade e fluxo
+
+**Contexto.** A v0.3 entregou a base (rotas, 8 lentes, síntese, persistência). A v0.4 avança quatro frentes pedidas explicitamente: fontes, escopo, profundidade e fluxo — com documentação e testes acompanhando.
+
+### Fontes
+
+- Catálogo de provedores em `search.ts`, cada um degradando de forma independente (`Promise.allSettled`):
+  - **Open Library** — ficha catalográfica (autoria, 1ª publicação, editoras, páginas, assuntos), gratuita e sem chave;
+  - **OpenAlex** — crítica acadêmica (título, ano, veículo, citações, DOI, resumo reconstruído do índice invertido);
+  - **TMDB** (opcional) — ficha técnica de filmes e séries;
+  - Wikipédia, Tavily e Z.ai mantidos.
+- `SourceDTO` ganhou `kind`, `lang`, `year`, `author`, `publisher`, `reliability` e `note`. O contexto do prompt agora leva esses atributos em cada `<fonte>`, e o pesquisador é instruído a hierarquizar fato catalogado × enciclopédia × crítica acadêmica × imprensa.
+- **Fontes do usuário**: até 5 links e/ou trechos, lidos no servidor (`user-sources.ts`) com proteção de SSRF (http(s) públicos, redirecionamentos revalidados, 800 KB/12 s) e conversão de HTML em texto.
+- Orçamento de fontes por profundidade (`SOURCE_BUDGET`) e prioridade por origem.
+
+### Escopo
+
+- Campo **recorte** (`focus`) persistido e injetado nas três fases do pipeline.
+- **Seleção de lentes**: 1 a 8; só as escolhidas entram no banco; as demais aparecem como `skipped` e podem ser geradas depois (“Gerar as N que faltam”).
+- A síntese passa a exigir `min(3, lentes pedidas)`.
+
+### Profundidade
+
+- Quatro níveis (`brief`, `standard`, `deep`, `exhaustive`) com: faixa de palavras, teto de tokens do especialista, teto da síntese, teto do dossiê, nº máximo de fontes e uma **calibragem textual** específica injetada no prompt.
+- `DEPTH_LABELS` (UI) e `DEPTH_CONFIG` (prompt) são verificados por teste para não divergirem.
+
+### Fluxo
+
+- **Fila**: `queued` + `ANIMA_MAX_QUEUE`; `drainQueue()` libera a próxima ao terminar uma execução. Posição exposta em `/api/analyses`, `/api/status` e na UI.
+- **Cancelamento real**: um `AbortController` por execução; `withTimeout` passou a aceitar sinal externo; o cancelamento aborta chamadas em curso, preserva o texto já escrito e permite retomar.
+- **Progresso** calculado no servidor (`computeProgress`) com pesos por fase, usado na análise e no histórico.
+- **Histórico** com filtros por situação e meio, progresso e cancelamento na lista.
+- Páginas `not-found` e `error`, metadados Open Graph.
+
+### Verificação
+
+- `npm test` → **47 testes** (pipeline, fila, cancelamento, retomada, recorte, profundidade, validação, SSRF/HTML, parsing de fontes, progresso, DTOs).
+- `npm run lint` e `tsc --noEmit` limpos (ressalva: `store-prisma.ts` depende do client gerado pelo Prisma; `prisma generate` não roda no sandbox por falta de acesso a `binaries.prisma.sh`).
+- Teste funcional com servidor real em modo `mock`: criação, enfileiramento (posição 1), conclusão das duas análises, cancelamento no meio (estado `interrupted`, 6 lentes preservadas, 2 marcadas como canceladas) e `409` ao cancelar de novo.
+
+### Decisões
+
+- **Fila em vez de 429**: recusar o pedido faz o usuário perder a digitação; a fila em processo é simples e resolve.
+- **Cancelar abortando**: marcar “cancelado” sem abortar continuaria consumindo tokens.
+- **Progresso no servidor**: sobrevive a refresh, aba oculta e múltiplas abas.
+- **OpenAlex sem filtro por título**: estudos acadêmicos raramente repetem o título da obra (“Machado e o romance da suspeita”); o pesquisador pondera o resumo.
+- **Fontes do usuário com prioridade**: se a pessoa enviou, é porque importa — mas continua sendo dado a verificar.
+
+---
+
+## v0.3 — revisão estrutural (UX/UI, arquitetura, profundidade teórica)
+
+- Rotas reais (`/`, `/analise/[id]`, `/metodo`), LLM independente do SDK Z.ai, persistência atrás de interface, concorrência global, Curador (síntese), 8 especialistas com repertório teórico, retomada de execuções interrompidas, testes.
+- Entrega enviada em `files/` (patch + árvore); aplicada e verificada (`git apply --check`, `diff -rq`, testes e lint). A pasta foi removida do repositório por duplicar o projeto e quebrar typecheck/build.
+
+---
+
+## v0.2 — MVP (1 pesquisador + 6 especialistas)
+
+**Task ID: 1** · agente: Z.ai Code (agente principal)
+
+- Estudo do SDK z-ai (chat completions + `functions.invoke('web_search')`), validado com busca sobre Dom Casmurro.
+- Modelagem Prisma (SQLite): `Analysis` (pipeline, dossiê, duração) + `AgentResult` (uma linha por especialista — progresso individual sem corridas de escrita).
+- Backend: `types.ts`, `agent-meta.ts`, `prompts.ts`, `orchestrator.ts` (2 buscas paralelas → dossiê → 6 especialistas em paralelo → consolidação), `dto.ts` e rotas de API.
+- Frontend: identidade editorial (Fraunces + Inter, papel/carvão/âmbar), três visões (início, monitoramento ao vivo, relatório), polling de 1,6 s, download `.md`.
+- **Descoberta importante**: 6 chamadas simultâneas estouravam o rate limit (429 em 2 agentes). Corrigido com disparo escalonado, backoff adaptativo e 3 tentativas; depois substituído por limitador global na v0.3.
+- Verificação end-to-end com análise visual (home desktop/mobile/dark, monitoramento, relatório, scrollspy, copiar, rodapé fixo), zero erros de console.
+- `python-reference/` com a implementação de referência do blueprint (LangChain + asyncio + Streamlit), sintaxe validada.
+- Próximos passos sugeridos na época: debate entre agentes, comparação entre obras, autenticação, exportação PDF — parcialmente absorvidos nas versões seguintes.
