@@ -93,7 +93,8 @@ test('tema alterna e o método abre pelo cabeçalho', async ({ page }) => {
     await expect.poll(async () => html.getAttribute('class'), { timeout: 2_000 }).not.toBe(before);
   }).toPass({ timeout: 120_000 });
 
-  await page.getByRole('link', { name: 'Método' }).click();
+  // "Método" aparece no cabeçalho e no rodapé: o teste fala com a navegação principal, não com o texto solto.
+  await page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Método' }).click();
   await expect(page).toHaveURL(/\/metodo$/);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 });
