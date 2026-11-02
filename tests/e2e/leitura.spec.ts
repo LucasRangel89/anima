@@ -14,6 +14,10 @@ test('analisa uma obra, responde uma pergunta e baixa o cofre', async ({ page })
   watch(page);
   await page.goto('/');
 
+  // Em produção a hidratação é rápida; ainda assim, só seguimos quando o runtime do Next existe na página.
+  await page.waitForFunction(() => Boolean((window as unknown as { next?: { version?: string } }).next?.version), undefined, {
+    timeout: 120_000,
+  });
   await expect(page).toHaveTitle(/ANIMA/);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
@@ -22,7 +26,7 @@ test('analisa uma obra, responde uma pergunta e baixa o cofre', async ({ page })
   await expect(async () => {
     await page.getByRole('button', { name: 'Dom Casmurro', exact: true }).click();
     await expect(page.getByLabel('Obra', { exact: true })).toHaveValue('Dom Casmurro', { timeout: 2_000 });
-  }).toPass({ timeout: 60_000 });
+  }).toPass({ timeout: 120_000 });
 
   // Diagnóstico: se o servidor recusar, a mensagem dele precisa aparecer na falha do teste.
   const status = await (await page.request.get('/api/status')).text();
@@ -87,7 +91,7 @@ test('tema alterna e o método abre pelo cabeçalho', async ({ page }) => {
   await expect(async () => {
     await page.getByRole('button', { name: 'Alternar entre tema claro e escuro' }).click();
     await expect.poll(async () => html.getAttribute('class'), { timeout: 2_000 }).not.toBe(before);
-  }).toPass({ timeout: 60_000 });
+  }).toPass({ timeout: 120_000 });
 
   await page.getByRole('link', { name: 'Método' }).click();
   await expect(page).toHaveURL(/\/metodo$/);

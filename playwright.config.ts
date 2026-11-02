@@ -27,14 +27,17 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: `npx next dev -p ${PORT}`,
+    // Servidor de **produção**: em modo dev o primeiro carregamento compila o bundle do cliente no runner
+    // (lento e variável), e os cliques do teste podiam chegar antes da hidratação. Build + start remove essa
+    // variável e testa o que o usuário realmente roda.
+    command: `npx next build && npx next start -p ${PORT} -H 127.0.0.1`,
     url: `http://127.0.0.1:${PORT}`,
     reuseExistingServer: !process.env.CI,
-    timeout: 240_000,
-    // Log do servidor vai para o mesmo arquivo do teste: erro de compilação/hidratação fica visível.
+    timeout: 600_000,
     stdout: 'pipe',
     stderr: 'pipe',
     env: {
+      ...process.env,
       LLM_PROVIDER: 'mock',
       ANIMA_STORE: 'memory',
       ANIMA_RATE_LIMIT: 'off',

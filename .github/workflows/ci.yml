@@ -118,6 +118,7 @@ jobs:
           status=$?
           if [ $status -ne 0 ]; then
             echo "::group::Falhas"
+            grep -E "\[pageerror\]|\[console.error\]|\[api/status\]|\[POST /api|\[botão" /tmp/e2e.log | head -20
             tail -120 /tmp/e2e.log
             echo "::endgroup::"
             # Anotações são o único canal que o log do Actions não esconde: mandamos o fim do log inteiro,
