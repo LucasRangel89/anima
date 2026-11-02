@@ -226,10 +226,10 @@ function saveHistory(): void {
 }
 
 function invalidateResult(): void {
-  if (state.dto) {
-    state.dto = null;
-    renderResult();
-  }
+  // Sempre redesenha: o botão "Montar a leitura" só aparece quando a etapa está pronta, e é justamente
+  // ao colar o dossiê/lentes que ela fica pronta.
+  state.dto = null;
+  renderResult();
 }
 
 function notify(message: string): void {
