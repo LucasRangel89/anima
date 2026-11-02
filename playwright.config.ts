@@ -7,6 +7,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 3100;
+const SITE_PORT = 3210;
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -26,7 +27,17 @@ export default defineConfig({
     locale: 'pt-BR',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  webServer: {
+  webServer: [{
+    // Site estático (oficina/PWA): gerado por `npm run site:build`, servido do jeito que o Pages serviria.
+    command: `npm run site:build && node scripts/serve-site.mjs`,
+    url: `http://127.0.0.1:${SITE_PORT}`,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: { ...process.env, PORT: String(SITE_PORT) },
+  },
+  {
     // Servidor de **produção**: em modo dev o primeiro carregamento compila o bundle do cliente no runner
     // (lento e variável), e os cliques do teste podiam chegar antes da hidratação. Build + start remove essa
     // variável e testa o que o usuário realmente roda.
@@ -48,5 +59,5 @@ export default defineConfig({
       NEXT_TELEMETRY_DISABLED: '1',
       MOCK_DELAY_MS: '20',
     },
-  },
+  }],
 });

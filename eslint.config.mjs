@@ -10,7 +10,7 @@ const eslintConfig = [
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },
-  { ignores: [".next/**", "node_modules/**", "out/**", "build/**", "next-env.d.ts", "python-reference/**"] },
+  { ignores: [".next/**", "node_modules/**", "out/**", "build/**", "next-env.d.ts", "python-reference/**", "site/**", "playwright-report/**", "test-results/**"] },
 ];
 
 export default eslintConfig;

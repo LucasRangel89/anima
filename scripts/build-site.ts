@@ -8,6 +8,7 @@
 // Uso: npm run site:build  → escreve em site/
 
 import { mkdir, copyFile, writeFile } from 'node:fs/promises';
+import { build as esbuild } from 'esbuild';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -54,6 +55,11 @@ const LIMITS = [
 ] as const;
 
 const RUN_OPTIONS = [
+  {
+    title: 'No navegador, sem instalar',
+    steps: ['Abra a oficina.html', 'Escolha a obra e copie os prompts', 'Cole no ChatGPT ou Gemini e traga as respostas'],
+    note: 'Modo manual: sem chave e sem servidor, mas sem coleta automática de fontes.',
+  },
   {
     title: 'No mesmo Wi-Fi',
     steps: ['npm install', 'cp .env.example .env', 'npm run db:push', 'npm run dev -- -H 0.0.0.0'],
@@ -150,16 +156,16 @@ export function renderSite(): string {
         Cada análise é ancorada em teoria nomeada, em fontes verificáveis e nos próprios limites.
       </p>
       <p class="cta">
-        <a class="button" href="#rodar">Como rodar o app</a>
-        <a class="button ghost" href="${REPO_URL}" rel="noopener">Código no GitHub</a>
+        <a class="button" href="oficina.html">Usar agora, sem instalar</a>
+        <a class="button ghost" href="#rodar">Rodar o app completo</a>
       </p>
 
       <aside class="notice">
-        <strong>Esta página é a apresentação, não o aplicativo.</strong>
-        O ANIMA que analisa obras roda num processo Node — ele fala com o modelo, mantém a fila e continua
-        trabalhando depois que você fecha a página. GitHub Pages serve arquivos estáticos, então não executa
-        esse servidor. Para analisar uma obra, siga <a href="#rodar">como rodar</a> ou o
-        <a href="${REPO_URL}/blob/main/docs/PUBLICAR.md" rel="noopener">guia de publicação</a>.
+        <strong>Esta página é a apresentação. O aplicativo completo precisa de um processo Node.</strong>
+        Mas existe um caminho sem instalar nada: a <a href="oficina.html">oficina</a> monta os mesmos
+        prompts das oito lentes e roda inteira no seu navegador — você cola no chat que já usa e traz as
+        respostas de volta. Para o app completo (com fontes e fila automáticas), veja
+        <a href="#rodar">como rodar</a> ou o <a href="${REPO_URL}/blob/main/docs/PUBLICAR.md" rel="noopener">guia de publicação</a>.
       </aside>
     </section>
 
@@ -412,7 +418,7 @@ tbody th { font-family: var(--serif); font-weight: 600; }
 .limits strong { color: var(--tinta); }
 
 .run { display: grid; gap: 1rem; grid-template-columns: 1fr; margin-bottom: 1.5rem; }
-@media (min-width: 52rem) { .run { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 52rem) { .run { grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); } }
 .run-card { border: 1px solid var(--linha); border-radius: var(--raio); padding: 1.1rem; background: var(--papel-2); }
 .run-card ol { margin: .75rem 0; padding-left: 1.1rem; font-size: .85rem; }
 .run-card li { margin-bottom: .45rem; }
@@ -422,6 +428,275 @@ footer { border-top: 1px solid var(--linha); padding-block: 2rem 3rem; color: va
 
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 @media print { .topbar, .theme, .cta { display: none; } body { background: #fff; color: #000; } }
+
+/* ───────────────────────── Oficina (modo manual) ───────────────────────── */
+.office-form { display: grid; gap: 1rem; grid-template-columns: 1fr; border: 1px solid var(--linha);
+  border-radius: var(--raio); padding: 1.25rem; background: var(--papel-2); }
+@media (min-width: 48rem) { .office-form { grid-template-columns: repeat(2, 1fr); } .office-form .span-2 { grid-column: 1 / -1; } }
+.field { display: flex; flex-direction: column; gap: .4rem; }
+.field label, .form-label { font-size: .85rem; font-weight: 600; }
+input, select, textarea { font: inherit; color: var(--tinta); background: var(--papel);
+  border: 1px solid var(--linha); border-radius: 10px; padding: .6rem .7rem; width: 100%; }
+textarea { resize: vertical; line-height: 1.5; }
+textarea.prompt { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; background: var(--papel-2); }
+.row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.mini { font: inherit; font-size: .85rem; border: 1px solid var(--linha); background: var(--papel);
+  color: var(--tinta); border-radius: 999px; padding: .35rem .8rem; cursor: pointer; }
+.mini:hover { border-color: var(--ambar); color: var(--ambar); }
+.mini.ghost { background: transparent; }
+.step { border-top: 1px solid var(--linha); padding-block: 2rem; }
+.step h2 { display: flex; align-items: center; gap: .6rem; font-size: 1.35rem; }
+.step h2 .step-num { display: inline-grid; place-items: center; width: 1.9rem; height: 1.9rem;
+  border-radius: 999px; border: 1px solid var(--ambar); color: var(--ambar); font-size: .85rem; }
+.step-hint { color: var(--tinta-fraca); max-width: 46rem; }
+.step-empty { color: var(--tinta-fraca); font-style: italic; }
+.lens-step { border: 1px solid var(--linha); border-radius: var(--raio); padding: .8rem 1rem;
+  margin-bottom: .75rem; background: var(--papel-2); }
+.lens-step summary { display: flex; gap: .6rem; align-items: center; cursor: pointer; font-weight: 600; }
+.lens-step-index { font-family: var(--serif); color: var(--ambar); }
+.lens-step-state { margin-left: auto; font-size: .75rem; border: 1px solid var(--linha); border-radius: 999px;
+  padding: .05rem .5rem; color: var(--tinta-fraca); }
+.lens-step-state.done { color: var(--ambar); border-color: var(--ambar); }
+.warnings { margin: 1rem 0; padding-left: 1.1rem; color: var(--tinta-fraca); max-width: 52rem; }
+.warnings .ok { color: var(--ambar); }
+.result-head { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-start; }
+.report-body { border: 1px solid var(--linha); border-radius: var(--raio); padding: 1.25rem;
+  margin-top: 1.5rem; max-height: 38rem; overflow: auto; }
+.report-body h2 { font-size: 1.2rem; margin-top: 1.5rem; }
+.report-body h3 { font-size: 1rem; margin-top: 1rem; }
+.report-body p, .report-body li { font-size: .92rem; }
+.report-body blockquote { margin: 0 0 .9rem; padding-left: .8rem; border-left: 2px solid var(--linha); color: var(--tinta-fraca); }
+.history-list { list-style: none; margin: 0; padding: 0; }
+.history-item { display: flex; justify-content: space-between; gap: 1rem; align-items: center;
+  border-bottom: 1px solid var(--linha); padding: .7rem 0; }
+.history-item .fine { display: block; }
+.toast { position: fixed; left: 50%; bottom: 1.25rem; transform: translate(-50%, 1rem);
+  background: var(--tinta); color: var(--papel); padding: .6rem 1rem; border-radius: 999px;
+  opacity: 0; pointer-events: none; transition: .2s ease; font-size: .9rem; z-index: 20; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+@media print { .report-body { max-height: none; border: 0; } }
+`;
+
+
+/* ───────────────────────── Oficina (modo manual) ───────────────────────── */
+
+/**
+ * A oficina é a única parte do site que faz alguma coisa: monta prompts, recebe texto colado e produz o
+ * relatório. Roda no navegador; o pacote (oficina.js) é gerado aqui pelo esbuild, a partir do mesmo código
+ * de prompts do app.
+ */
+export function renderOficinaPage(): string {
+  const lenses = AGENTS.map(
+    (agent) => `<li><strong>${esc(agent.name)}</strong> — ${esc(agent.tagline)}</li>`
+  ).join('\n            ');
+
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ANIMA — oficina sem instalar</title>
+  <meta name="description" content="A oficina do ANIMA monta os prompts das oito lentes no seu navegador. Sem chave, sem servidor: você cola no chat que já usa e traz as respostas de volta.">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#aa5823">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+  <header class="topbar">
+    <div class="wrap">
+      <a class="brand" href="./">
+        <img src="logo.svg" alt="" width="28" height="28">
+        <span>ANIMA</span>
+      </a>
+      <nav aria-label="Principal">
+        <a href="./">Apresentação</a>
+        <a href="oficina.html">Oficina</a>
+        <a href="${REPO_URL}" rel="noopener">GitHub</a>
+      </nav>
+      <button id="tema" class="theme" type="button" aria-label="Alternar tema claro e escuro">◐</button>
+    </div>
+  </header>
+
+  <main id="conteudo">
+    <section class="hero wrap">
+      <p class="eyebrow">Modo manual · sem chave · sem instalação</p>
+      <h1>Uma obra, oito lentes,<br><em>no seu navegador</em></h1>
+      <p class="lede">
+        A oficina monta os mesmos prompts do ANIMA. Quem responde é o chat que você já usa — ChatGPT,
+        Gemini, Claude, DeepSeek. Você traz os textos de volta e recebe a leitura integrada, com a
+        conferência de forma e a exportação para Obsidian.
+      </p>
+      <aside class="notice">
+        <strong>O que este modo não faz.</strong> Ele não consulta fontes automaticamente e não confere as
+        referências citadas: isso depende do chat e do seu olho. Se quiser o pipeline completo, com dossiê
+        ancorado em fontes abertas, ele precisa de um processo Node — veja
+        <a href="./#rodar">como rodar o app</a>. Nada do que você colar aqui sai deste navegador.
+      </aside>
+    </section>
+
+    <section class="wrap">
+      <form id="form-obra" class="office-form" autocomplete="off">
+        <div class="field span-2">
+          <label for="obra-titulo">Obra</label>
+          <input type="text" id="obra-titulo" name="titulo" placeholder="Ex.: Dom Casmurro, Cidade de Deus, Disco Elysium" required>
+        </div>
+        <div class="field">
+          <label for="obra-dica">Dica de identificação (opcional)</label>
+          <input type="text" id="obra-dica" name="dica" placeholder="Autor, diretor, ano, elenco…">
+        </div>
+        <div class="field">
+          <label for="obra-recorte">Recorte (opcional)</label>
+          <input type="text" id="obra-recorte" name="recorte" placeholder="Um capítulo, temporada, personagem ou aspecto">
+        </div>
+        <div class="field">
+          <label for="obra-tipo">Meio</label>
+          <select id="obra-tipo" name="tipo"></select>
+        </div>
+        <div class="field">
+          <label for="obra-profundidade">Profundidade</label>
+          <select id="obra-profundidade" name="profundidade"></select>
+        </div>
+        <fieldset class="field span-2">
+          <legend class="form-label">Como conversar com o chat</legend>
+          <label class="radio"><input type="radio" name="modo" value="single" checked> Uma conversa só — menos colagem, oito seções numa resposta</label>
+          <label class="radio"><input type="radio" name="modo" value="perLens"> Uma conversa por lente — mais fiel ao app, mais colagem</label>
+        </fieldset>
+        <div class="span-2 row">
+          <button type="submit" class="button">Montar os prompts</button>
+          <span class="fine">Tudo fica salvo neste navegador enquanto você trabalha.</span>
+        </div>
+      </form>
+    </section>
+
+    <div id="passos" hidden>
+      <section class="wrap step" id="passo-dossie">
+        <h2><span class="step-num">1</span> Dossiê</h2>
+        <div id="corpo-dossie"></div>
+      </section>
+
+      <section class="wrap step" id="passo-lentes">
+        <h2><span class="step-num">2</span> As oito lentes</h2>
+        <div id="corpo-lentes"></div>
+      </section>
+
+      <section class="wrap step" id="passo-sintese">
+        <h2><span class="step-num">3</span> Síntese integrada</h2>
+        <div id="corpo-sintese"></div>
+      </section>
+
+      <section class="wrap step" id="passo-resultado">
+        <h2><span class="step-num">4</span> Leitura integrada</h2>
+        <div id="corpo-resultado"></div>
+      </section>
+    </div>
+
+    <section class="wrap step" id="historico">
+      <h2>Histórico neste navegador</h2>
+      <p class="step-hint">
+        Salvo no seu aparelho, não na nuvem. Baixe o <code>.md</code> ou o cofre do Obsidian para guardar
+        uma cópia — limpar os dados do navegador apaga este histórico.
+      </p>
+      <ul id="lista-historico" class="history-list"></ul>
+    </section>
+
+    <section class="wrap">
+      <h2>O que cada lente faz</h2>
+      <ul class="limits">
+            ${lenses}
+      </ul>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <p>
+      ANIMA · projeto pessoal, código aberto.
+      <a href="${REPO_URL}" rel="noopener">Repositório</a> ·
+      <a href="${REPO_URL}/blob/main/CHANGELOG.md" rel="noopener">Alterações</a> ·
+      <a href="${REPO_URL}/blob/main/docs/METODO.md" rel="noopener">Método</a>
+    </p>
+    <p class="fine">
+      Texto gerado por IA a partir do que você colar: confira fatos e referências antes de citar.
+      Nada do que você escreve aqui é enviado para nós — não temos servidor.
+    </p>
+  </footer>
+
+  <div id="aviso" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var saved = null;
+      try { saved = localStorage.getItem('anima-tema'); } catch (e) {}
+      if (saved) root.dataset.tema = saved;
+      var botao = document.getElementById('tema');
+      if (botao) botao.addEventListener('click', function () {
+        var atual = root.dataset.tema === 'escuro' ? 'claro' : root.dataset.tema === 'claro' ? 'escuro' : (matchMedia('(prefers-color-scheme: dark)').matches ? 'claro' : 'escuro');
+        root.dataset.tema = atual;
+        try { localStorage.setItem('anima-tema', atual); } catch (e) {}
+      });
+    })();
+  </script>
+  <script type="module" src="oficina.js"></script>
+</body>
+</html>
+`;
+}
+
+export const MANIFEST = {
+  name: 'ANIMA — oficina',
+  short_name: 'ANIMA',
+  description: 'Monte os prompts das oito lentes do ANIMA e cole no chat que você já usa.',
+  lang: 'pt-BR',
+  start_url: './oficina.html',
+  scope: './',
+  display: 'standalone',
+  background_color: '#fbf9f5',
+  theme_color: '#aa5823',
+  icons: [{ src: 'logo.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
+};
+
+/** Cache do app shell. A oficina funciona sem rede depois da primeira visita. */
+export const SERVICE_WORKER = `// Gerado por scripts/build-site.ts — muda de versão quando o shell muda.
+const CACHE = 'anima-oficina-v1';
+const SHELL = ['./oficina.html', './oficina.js', './estilo.css', './logo.svg', './manifest.webmanifest'];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  event.respondWith(
+    caches.match(request).then((cached) => {
+      const network = fetch(request)
+        .then((response) => {
+          if (response.ok) caches.open(CACHE).then((cache) => cache.put(request, response.clone()));
+          return response;
+        })
+        .catch(() => cached || caches.match('./oficina.html'));
+      return cached || network;
+    })
+  );
+});
 `;
 
 export async function buildSite(): Promise<{ files: string[]; html: string }> {
@@ -431,8 +706,36 @@ export async function buildSite(): Promise<{ files: string[]; html: string }> {
   await writeFile(join(OUT, 'estilo.css'), CSS, 'utf8');
   await writeFile(join(OUT, '404.html'), html, 'utf8'); // Pages devolve o mesmo site em rotas desconhecidas
   await writeFile(join(OUT, '.nojekyll'), '', 'utf8');
+  await writeFile(join(OUT, 'oficina.html'), renderOficinaPage(), 'utf8');
+  await writeFile(join(OUT, 'manifest.webmanifest'), `${JSON.stringify(MANIFEST, null, 2)}\n`, 'utf8');
+  await writeFile(join(OUT, 'sw.js'), SERVICE_WORKER, 'utf8');
   await copyFile(join(ROOT, 'public', 'logo.svg'), join(OUT, 'logo.svg'));
-  return { files: ['index.html', 'estilo.css', '404.html', 'logo.svg', '.nojekyll'], html };
+
+  await esbuild({
+    entryPoints: [join(ROOT, 'src', 'oficina', 'main.ts')],
+    bundle: true,
+    format: 'esm',
+    target: ['es2020'],
+    minify: true,
+    legalComments: 'none',
+    outfile: join(OUT, 'oficina.js'),
+    logLevel: 'silent',
+  });
+
+  return {
+    files: [
+      'index.html',
+      'estilo.css',
+      '404.html',
+      'logo.svg',
+      '.nojekyll',
+      'oficina.html',
+      'oficina.js',
+      'manifest.webmanifest',
+      'sw.js',
+    ],
+    html,
+  };
 }
 
 // Executado diretamente (`npm run site:build`), não quando importado em testes.

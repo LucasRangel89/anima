@@ -363,3 +363,38 @@ de verdade, um teto para uso publicado e a decisão do Prisma escrita — sem ex
 
 - **`e2e` local**: o sandbox não baixa navegador; a prova é o job do CI.
 - Troca do Prisma: deliberadamente não feita.
+
+---
+
+## Modo manual — a oficina (sem instalar)
+
+**Contexto.** O app publicado no Pages era só apresentação: analisar uma obra exigia Node, terminal e chave de
+API. Para uso pessoal no celular, isso era um beco sem saída. A oficina troca a chave por colagem: o ANIMA
+monta os mesmos prompts, a pessoa leva ao chat que já usa (ChatGPT/Gemini/Claude) e traz as respostas.
+
+### Constituído
+
+- **`src/lib/anima/oficina.ts`** — o miolo, sem rede: prompt do dossiê, prompts por lente, pacote único das
+  oito lentes, prompt de síntese, separação da resposta em seções e montagem da análise no formato do app.
+- **`src/lib/anima/agent-labels.ts`** — rótulos das lentes sem React, para o bundle da página não arrastar a
+  interface inteira. `tests/oficina.test.ts` compara com `agent-meta.ts` e falha se divergirem.
+- **`src/oficina/main.ts`** — a página em si: formulário, cópia/colagem, rascunho e histórico em
+  `localStorage`, conferência de forma, download `.md` e cofre `.zip`.
+- **Build**: `scripts/build-site.ts` gera `oficina.html`, empacota o script com esbuild e publica
+  `manifest.webmanifest` + `sw.js` (instalável, abre offline). O workflow do Pages já leva tudo junto.
+- **Teste de navegador**: `tests/e2e/oficina.spec.ts` roda contra o site estático servido por
+  `scripts/serve-site.mjs` (porta 3210), incluindo download e persistência após recarregar.
+
+### Verificado
+
+- **15 testes novos** de unidade (prompts, separação das seções, régua, exportação, página publicada).
+  Suíte completa: **182 testes (181 passam, 1 pulado — Prisma local)**; `typecheck` e `lint` limpos.
+- **Bundle carrega**: `site/oficina.js` (116 KB, com os textos dos prompts) importa sem erro fora do navegador
+  e exporta apenas `start` e `renderMarkdown`.
+- Site gerado com os nove arquivos esperados; nenhum caminho absoluto que quebraria em `/anima/`.
+
+### Não verificado
+
+- **Navegador de verdade**: este sandbox não baixa Chromium; a prova da interface é o job `e2e` do CI.
+- **Chats reais**: os prompts foram desenhados para ChatGPT/Gemini/Claude, mas nenhuma colagem real foi feita
+  aqui (sem rede). A qualidade do resultado depende do chat escolhido — o modo manual não coleta fontes.

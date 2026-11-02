@@ -42,9 +42,9 @@ test('todo item de navegação aponta para uma seção existente', () => {
   }
 });
 
-test('diz com todas as letras que a página não executa o aplicativo', () => {
-  assert.match(html, /Esta página é a apresentação, não o aplicativo/);
-  assert.match(html, /GitHub Pages serve arquivos estáticos/);
+test('diz com todas as letras o que roda aqui e o que exige servidor', () => {
+  assert.match(html, /Esta página é a apresentação\. O aplicativo completo precisa de um processo Node\./);
+  assert.ok(html.includes('oficina.html'), 'aponta para o modo que roda no próprio navegador');
   assert.ok(html.includes('docs/PUBLICAR.md'), 'aponta para o caminho de publicar o app de verdade');
 });
 
