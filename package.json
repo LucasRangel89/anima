@@ -19,7 +19,9 @@
     "check": "npm run typecheck && npm run lint && npm test",
     "db:studio": "prisma studio",
     "doctor": "node scripts/doctor.mjs",
-    "audit:ui": "node scripts/audit-ui.mjs"
+    "audit:ui": "node scripts/audit-ui.mjs",
+    "site:build": "tsx scripts/build-site.ts",
+    "site:serve": "python3 -m http.server 4173 --directory site"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",

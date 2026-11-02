@@ -15,6 +15,7 @@ Foco: **custo zero e robustez (Fase 1)**.
 - **Presets gratuitos documentados** em `.env.example` — Gemini (endpoint OpenAI-compatível), Groq, OpenRouter `:free` e Ollama — com limites conferidos na documentação oficial e a data da conferência.
 - **`npm run doctor`** passa a mostrar o contexto configurado e se há fallback.
 
+- **Site de apresentação no GitHub Pages** (`npm run site:build` + `.github/workflows/pages.yml`), gerado a partir dos dados reais do produto e explicitamente separado do aplicativo, que exige servidor.
 - **`ANIMA_ACCESS_TOKEN`** e `src/proxy.ts`: proteção por segredo único quando o app sai do localhost — páginas e API, cookie `HttpOnly` de 30 dias, comparação em tempo constante, token removido da URL após o primeiro acesso.
 - **`Dockerfile`** + `.dockerignore` para hospedar num processo Node persistente, com `prisma db push` no start.
 - **`docs/PUBLICAR.md`**: Wi-Fi, túnel e nuvem, com os limites de cada opção e o que ainda falta para multiusuário.

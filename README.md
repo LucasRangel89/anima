@@ -279,6 +279,16 @@ Cobertura de testes: pipeline completo (mock), fila, cancelamento, retomada, fal
 - **`tests/fallback.test.ts`** sobe um servidor que devolve 429 com `Retry-After` de 15 minutos e verifica que a análise **termina com o modelo alternativo** (e que, sem alternativo, falha rápido e com mensagem clara — sem ficar horas esperando).
 - **CI no GitHub Actions** (`.github/workflows/ci.yml`): tipos, lint, testes com o contrato do Prisma rodando de verdade, auditoria de UI e build — a cada push e pull request.
 
+### Site publicado (apresentação)
+
+O repositório publica uma **página de apresentação** em <https://lucasrangel89.github.io/anima/>, gerada por
+`npm run site:build` a partir dos mesmos dados do produto (lentes, profundidades, fontes) e enviada pelo
+workflow `.github/workflows/pages.yml`.
+
+Ela **não executa o aplicativo**: o ANIMA precisa de um processo Node para falar com o modelo e manter a
+fila. GitHub Pages serve apenas arquivos estáticos. Para analisar obras de qualquer aparelho, veja
+[`docs/PUBLICAR.md`](docs/PUBLICAR.md).
+
 ### Publicar e usar de qualquer aparelho
 
 O ANIMA roda num processo Node persistente, então **GitHub Pages não serve** (ele publica arquivos parados).
