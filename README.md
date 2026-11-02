@@ -286,6 +286,9 @@ Uma linha por lente permite gravar progresso sem corrida de escrita e recuperar 
 | `TMDB_API_KEY` | — | Ficha técnica de filmes e séries |
 | `TAVILY_API_KEY` | — | Resenhas e crítica de imprensa |
 | `NEXT_PUBLIC_SITE_URL` | `http://localhost:3000` | Metadados/Open Graph |
+| `ANIMA_ACCESS_TOKEN` | — | Segredo único exigido quando o app sai do localhost |
+| `ANIMA_RATE_LIMIT` | `on` | `off` desliga os limites de uso |
+| `ANIMA_RATE_LIMIT_ANALYSES` / `_EXTRA` | `20` / `120` | Teto por hora, por processo (`0` desliga) |
 
 O modelo precisa de contexto de pelo menos ~32k tokens (a síntese recebe as análises das lentes). Se o seu tiver menos, o ANIMA reduz o material, avisa no relatório e continua — nada quebra.
 
@@ -323,7 +326,8 @@ Cobertura de testes: pipeline completo (mock), fila, cancelamento, retomada, fal
 - **`tests/budget.test.ts`** prova que a estimativa de tokens é conservadora, que a redução é determinística e que nenhum prompt passa do contexto configurado.
 - **`tests/fallback.test.ts`** sobe um servidor que devolve 429 com `Retry-After` de 15 minutos e verifica que a análise **termina com o modelo alternativo** (e que, sem alternativo, falha rápido e com mensagem clara — sem ficar horas esperando).
 - **`tests/eval.test.ts`** protege a própria régua: contagem de palavras, faixa por profundidade, seção "Limites e verificações" e a verificação de referências — que **nunca** transforma "sem rede" ou "outro autor com o mesmo ano" em "confirmada".
-- **CI no GitHub Actions** (`.github/workflows/ci.yml`): tipos, lint, testes com o contrato do Prisma rodando de verdade, auditoria de UI e build — a cada push e pull request.
+- **e2e com Playwright** (`tests/e2e/`): navegador de verdade percorrendo o caminho principal — formulário, relatório, pergunta de acompanhamento, download do cofre Obsidian, tema, `/comparar` (gerar, recarregar, baixar e remover). Roda no CI (`npm run e2e` localmente), com provedor mock e store em memória.
+- **CI no GitHub Actions** (`.github/workflows/ci.yml`): tipos, lint, testes com o contrato do Prisma rodando de verdade, auditoria de UI, build e **e2e** — a cada push e pull request.
 
 ### Avaliar a qualidade do que sai (`npm run eval`)
 
@@ -357,6 +361,9 @@ O ANIMA roda num processo Node persistente, então **GitHub Pages não serve** (
 O guia [`docs/PUBLICAR.md`](docs/PUBLICAR.md) cobre os três caminhos reais, em ordem de dificuldade: celular
 na mesma rede Wi-Fi, túnel a partir do seu computador e hospedagem em nuvem com o `Dockerfile` deste
 repositório.
+
+Há ainda dois limites em memória, por hora e por processo (20 análises, 120 perguntas/comparações), ajustáveis
+por `ANIMA_RATE_LIMIT_*` — eles não substituem o token, apenas impedem que um script queime sua cota.
 
 Publicado fora do localhost, **defina `ANIMA_ACCESS_TOKEN`**: um token único protege páginas e API (cookie
 `HttpOnly`, comparação em tempo constante). Sem ele, qualquer pessoa com o endereço pode consumir sua cota
@@ -406,6 +413,7 @@ anima/
 ## Roadmap
 
 - **v0.5 (proposto)** — comparação entre duas obras; debate explícito entre lentes (réplica e tréplica); avaliação automática de citações contra o dossiê.
+- **Proposta registrada** — trocar Prisma por SQLite direto (sem executar): [`docs/PROPOSTA-SQLITE.md`](docs/PROPOSTA-SQLITE.md).
 - **Depois** — autenticação e multiusuário; exportação PDF com tipografia editorial; provedores de fonte adicionais (Crossref, Google Books, Internet Archive); cache de dossiês por obra.
 
 Sugestões e correções são bem-vindas em issues.

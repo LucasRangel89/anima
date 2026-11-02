@@ -8,6 +8,9 @@ Foco: **qualidade mensurável (Fase 2) e uso pessoal (Fase 3)**.
 
 ### Adicionado
 
+- **Limites de uso** (`ANIMA_RATE_LIMIT_ANALYSES`, `ANIMA_RATE_LIMIT_EXTRA`, `ANIMA_RATE_LIMIT=off`): janela deslizante em memória que responde `429` com `Retry-After` em análises, perguntas e comparações. Defaults: 20 e 120 por hora, por processo.
+- **e2e com Playwright** (`npm run e2e`, job próprio no CI): formulário → relatório → pergunta → cofre Obsidian; tema; `/comparar` com geração, recarga, download e remoção. Provedor mock e store em memória.
+- **`docs/PROPOSTA-SQLITE.md`**: proposta (não execução) de trocar Prisma por SQLite direto, com custo, risco e critérios para decidir.
 - **Comparar duas obras** (`/comparar`): leitura cruzada de duas análises concluídas em uma única chamada (dossiê + síntese de cada lado), com registro próprio, histórico, download em Markdown e remoção. Títulos gravados no registro — apagar uma análise não apaga a comparação.
 - **Perguntas de acompanhamento**: caixa ao fim do relatório que responde perguntas usando o dossiê e as lentes já geradas, com sugestões derivadas do que a análise cobriu. Uma chamada por pergunta, com retry e `LLM_FALLBACK_MODEL`; respostas salvas em `followUps` (JSON), teto de 30, remoção pela interface.
 - **Exportação para o Obsidian**: um `.zip` com índice, dossiê e uma nota por lente, ligadas por `[[wikilinks]]` e com frontmatter (`tags`, `obra`, `lente`, `papel`, `data`, `modelo`). Zip escrito no próprio projeto (`src/lib/anima/zip.ts`, método store, sem dependência), nomes de arquivo saneados e acentos preservados.

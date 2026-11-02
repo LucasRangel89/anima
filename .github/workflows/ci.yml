@@ -88,3 +88,72 @@ jobs:
           LLM_PROVIDER: mock
           # Aqui há banco de verdade: pular o contrato do Prisma seria falso verde.
           ANIMA_REQUIRE_PRISMA_TESTS: '1'
+
+  # Interface de verdade, num navegador de verdade. É o único teste que não roda no sandbox de desenvolvimento
+  # (sem navegador), por isso ganha job próprio no CI. Provedor mock e store em memória: nada de cota gasta.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Gerar client do Prisma
+        run: npx prisma generate
+
+      - name: Instalar Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Criar banco de teste
+        run: npx prisma db push --skip-generate
+        env:
+          DATABASE_URL: file:./e2e.db
+
+      - name: Build de produção
+        run: npm run build
+        env:
+          DATABASE_URL: file:./e2e.db
+          LLM_PROVIDER: mock
+
+      - name: Testes de interface
+        # A saída é resumida em anotações: o log bruto do Actions nem sempre é acessível a quem revisa.
+        run: |
+          set +e
+          npx playwright test > /tmp/e2e.log 2>&1
+          status=$?
+          if [ $status -ne 0 ]; then
+            echo "::group::Falhas"
+            grep -E "✘|Error:|Timeout|waiting for|was not able to|webServer|\[pageerror\]|\[console.error\]|\[POST /api|\[botão" /tmp/e2e.log | head -30
+            tail -100 /tmp/e2e.log
+            echo "::endgroup::"
+            # Anotações são o único canal que o log do Actions não esconde: mandamos o fim do log inteiro,
+            # em pedaços, para o diagnóstico não depender de baixar artefato.
+            grep -E "✘|Error:|Timeout|waiting for|was not able to|\[pageerror\]|\[console.error\]|\[POST /api|\[botão" /tmp/e2e.log | head -40 | tr -d '\r' | cut -c1-350 | sed 's/%/%25/g' | while IFS= read -r linha; do
+              echo "::error::$linha"
+            done
+          fi
+          exit $status
+        env:
+          CI: '1'
+          E2E_SKIP_BUILD: '1'
+          DATABASE_URL: file:./e2e.db
+          LLM_PROVIDER: mock
+          ANIMA_STORE: memory
+          ANIMA_RATE_LIMIT: 'off'
+
+      - name: Guardar relatório em falha
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            /tmp/e2e.log
+            playwright-report/
+            test-results/
+          retention-days: 7

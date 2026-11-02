@@ -11,6 +11,7 @@ import { answerFollowUp, toFollowUpRecord } from '@/lib/anima/follow-up';
 import { MAX_FOLLOW_UPS } from '@/lib/anima/follow-up';
 import { firstIssue, followUpSchema } from '@/lib/anima/validation';
 import { getSystemStatus } from '@/lib/anima/status';
+import { extraCallRateLimit, rateLimitResponse } from '@/lib/anima/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,15 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     const status = getSystemStatus();
     if (!status.configured) {
       return NextResponse.json({ error: status.message ?? 'O LLM não está configurado.' }, { status: 503 });
+    }
+
+    const limit = extraCallRateLimit();
+    if (!limit.ok) {
+      const { message, retryAfterSeconds } = rateLimitResponse(limit, 'perguntas e comparações');
+      return NextResponse.json(
+        { error: message },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } }
+      );
     }
 
     const store = await getStore();

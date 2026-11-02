@@ -22,7 +22,9 @@
     "audit:ui": "node scripts/audit-ui.mjs",
     "site:build": "tsx scripts/build-site.ts",
     "site:serve": "python3 -m http.server 4173 --directory site",
-    "eval": "tsx scripts/eval.ts"
+    "eval": "tsx scripts/eval.ts",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",
@@ -46,6 +48,7 @@
     "zod": "^4.0.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22",
     "@types/react": "^19",
