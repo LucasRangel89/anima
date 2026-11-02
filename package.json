@@ -17,7 +17,9 @@
     "db:generate": "prisma generate",
     "db:reset": "prisma migrate reset",
     "check": "npm run typecheck && npm run lint && npm test",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "doctor": "node scripts/doctor.mjs",
+    "audit:ui": "node scripts/audit-ui.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",

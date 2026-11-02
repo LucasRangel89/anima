@@ -31,6 +31,8 @@ export interface AnalysisRow {
   error: string | null;
   durationMs: number | null;
   model: string | null;
+  /** JSON de AnalysisUsage: chamadas, tokens e avisos de contexto desta análise. */
+  usage: string | null;
   createdAt: Date;
   updatedAt: Date;
   results: AgentResultRow[];
@@ -75,6 +77,7 @@ export interface AnalysisPatch {
   error?: string | null;
   durationMs?: number | null;
   model?: string | null;
+  usage?: string | null;
 }
 
 export interface AgentPatch {

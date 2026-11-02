@@ -45,6 +45,21 @@ export function buildReportMarkdown(a: AnalysisDTO): string {
     );
   }
 
+  if (a.usage && a.usage.calls > 0) {
+    const u = a.usage;
+    parts.push(
+      '---',
+      '',
+      '## Recursos desta análise',
+      '',
+      `- **Chamadas ao modelo:** ${u.calls}`,
+      `- **Tokens:** ${u.totalTokens.toLocaleString('pt-BR')} (${u.promptTokens.toLocaleString('pt-BR')} de entrada, ${u.completionTokens.toLocaleString('pt-BR')} de saída)${u.estimated ? ' — números estimados: o provedor não informou `usage`' : ''}`,
+      `- **Contexto configurado:** ${u.contextLimit.toLocaleString('pt-BR')} tokens`,
+      ...(u.notices.length ? ['', '**Avisos de contexto**', '', ...u.notices.map((n) => `- ${n}`)] : []),
+      ''
+    );
+  }
+
   for (const agent of AGENTS) {
     const r = a.results.find((x) => x.agentKey === agent.key);
     parts.push('---', '', `## ${agent.name} — ${agent.role}`, '');

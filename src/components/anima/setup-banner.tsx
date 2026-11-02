@@ -4,9 +4,15 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, Info, Layers } from 'lucide-react';
 import { SOURCE_ORIGIN_LABELS, type SystemStatusDTO } from '@/lib/anima/types';
 
-/** Avisa quando o LLM não está configurado/modo demonstração e resume o que está ativo. */
-export function SetupBanner() {
-  const [status, setStatus] = useState<SystemStatusDTO | null>(null);
+/**
+ * Avisa quando o LLM não está configurado/modo demonstração e resume o que está ativo.
+ *
+ * Recebe o estado já calculado no servidor (`initialStatus`) para aparecer no primeiro paint:
+ * sem isso, quem abre o app sem chave via o formulário e nenhuma explicação até o JS hidratar.
+ * A busca seguinte só serve para atualizar a ocupação da fila.
+ */
+export function SetupBanner({ initialStatus }: { initialStatus?: SystemStatusDTO }) {
+  const [status, setStatus] = useState<SystemStatusDTO | null>(initialStatus ?? null);
 
   useEffect(() => {
     fetch('/api/status', { cache: 'no-store' })

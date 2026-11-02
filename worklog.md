@@ -73,3 +73,75 @@ Diário de construção: o que foi feito, o que foi verificado e por que certas 
 - Verificação end-to-end com análise visual (home desktop/mobile/dark, monitoramento, relatório, scrollspy, copiar, rodapé fixo), zero erros de console.
 - `python-reference/` com a implementação de referência do blueprint (LangChain + asyncio + Streamlit), sintaxe validada.
 - Próximos passos sugeridos na época: debate entre agentes, comparação entre obras, autenticação, exportação PDF — parcialmente absorvidos nas versões seguintes.
+
+## Fase 0 — verificação real (2026-11-02)
+
+Ambiente de verificação: container Linux sem navegador, sem `apt`/root e com saída de rede limitada ao
+registro npm. Isso define o que pôde ser comprovado e o que ficou para a máquina do usuário.
+
+**Comprovado por execução**
+
+- `npm ci` (538 pacotes), `tsc --noEmit` (0 erros, incluindo `store-prisma.ts`) e `next build` (10 rotas).
+- Pipeline completo com `LLM_PROVIDER=mock` + `ANIMA_STORE=memory`: livro e filme, 8/8 lentes, dossiê e síntese,
+  progresso 100, console do servidor sem erros de aplicação.
+- Fila real: `ANIMA_MAX_ACTIVE=2` → terceira análise `queued` com `queuePosition: 1`, cancelamento da fila
+  (`interrupted` + mensagem de retomada), `409` ao cancelar o que já terminou, `400` ao reexecutar o que não
+  precisa, `503` sem chave configurada.
+- Aviso de primeira execução passa a ser renderizado no servidor (`getSystemStatus()` em `page.tsx`),
+  e não mais apenas depois da hidratação.
+- Contraste WCAG dos dez pares de cor do tema em claro e escuro (menor razão: 4,59:1 — AA) e estrutura das
+  rotas `/` e `/metodo` (um `<h1>`, hierarquia sem saltos, landmarks, rótulos).
+
+**Não verificável neste ambiente** (exige rede aberta, engines do Prisma ou navegador)
+
+- `prisma generate`/`db push` com engines reais; execução do `store-prisma.ts` contra SQLite de verdade.
+  Contorno usado: `prisma generate --no-engine` apenas para checar tipos. Por isso o teste de contrato do
+  store é **pulado com motivo** quando não há banco.
+- Chamada real a um LLM (Gemini/Groq/OpenRouter/Ollama) e busca real (Wikipédia/Open Library/OpenAlex).
+  O caminho foi coberto de outro jeito: `tests/llm-http.test.ts` contra um servidor OpenAI-compatível local e
+  `tests/search-network.test.ts` com respostas gravadas dos provedores.
+- Interface renderizada em 1280px/390px, claro/escuro. Chromium foi baixado (`@sparticuz/chromium`), mas não
+  executa sem `libnspr4`/`libnss3` e não há root para instalá-las. O que deu para checar sem navegador está em
+  `npm run audit:ui`.
+- Tipografia real: `next/font/google` não baixa Fraunces/Inter aqui; o preview cai em fontes de sistema.
+
+## Fase 1 — custo zero e robustez (2026-11-02)
+
+**O que guiou as decisões**
+
+- Limites de provedores gratuitos só entram na documentação depois de conferidos na fonte oficial, com data:
+  Groq (`openai/gpt-oss-120b`: 30 req/min, 1.000 req/dia, **8k TPM**) e OpenRouter (`:free`: 20 req/min,
+  **50 req/dia**). Para Gemini, a Google não publica tabela fixa — o `.env.example` aponta o AI Studio em vez
+  de inventar números. Ollama não tem limite, tem RAM.
+- O gargalo real não é o contexto: é **tokens por minuto**. Uma análise Padrão faz 10 chamadas; no Groq isso
+  passa de 8k TPM em poucos minutos. Daí `LLM_CONCURRENCY` padrão 2 e a recomendação de 1 nos gratuitos.
+
+**Implementado**
+
+- `budget.ts`: estimativa conservadora (3 caracteres/token), condensação determinística (títulos, listas,
+  primeira frase) e corte cabeça/cauda com marcador. Nenhuma chamada extra ao modelo.
+- Orquestrador aplica o orçamento no dossiê de fontes, no dossiê das lentes e na síntese (divisão justa entre
+  dossiê e cada análise — antes o dossiê podia engolir o espaço e as últimas lentes viravam nada).
+- Avisos agregados em vez de nove linhas repetidas; diagnóstico antecipado quando o contexto é pequeno para
+  a profundidade pedida.
+- `usage` por análise (chamadas, tokens, por etapa, marca de estimativa) na API, na página e no `.md`.
+- Fallback em 429 persistente com `Retry-After` > 60 s: uma tentativa no modelo alternativo, sem laço.
+- `ANIMA_ACCESS_TOKEN` + `src/proxy.ts` (Next 16 renomeou `middleware` para `proxy`).
+
+**Verificado**
+
+- 97 testes locais; `budget` (12), `fallback` (2, com servidor que devolve 429 de 15 min) e `usage` no
+  orquestrador (4 novos).
+- Fluxo real por `curl` com `LLM_CONTEXT_TOKENS=8192` e dossiê gigante: análise conclui, avisos corretos.
+- Matriz de autenticação por `curl` (sem token 401, token errado 401, token certo 200, cookie 200, header 200,
+  `?token=` redireciona e grava cookie HttpOnly, assets livres).
+- **CI no GitHub Actions com `DATABASE_URL` real e `ANIMA_REQUIRE_PRISMA_TESTS=1`**: o contrato do Prisma
+  rodou contra SQLite de verdade, numa máquina independente deste sandbox. Isso fecha a lacuna da Fase 0 —
+  e revelou dois defeitos que só apareciam com banco: ordem das lentes dependia do SQLite e o upsert de uma
+  lente numa análise já apagada violava a chave estrangeira.
+
+**Não verificado**
+
+- Chamada real a Gemini/Groq/OpenRouter/Ollama: a rede do sandbox bloqueia os três primeiros; Ollama exigiria
+  um modelo local de vários GB. O caminho está coberto por servidor OpenAI-compatível local.
+- Interface renderizada em navegador: segue sem navegador executável aqui.

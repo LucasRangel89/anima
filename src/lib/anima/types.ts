@@ -185,6 +185,26 @@ export interface AgentResultDTO {
   durationMs: number | null;
 }
 
+/** Contabilidade de chamadas/tokens de uma análise (exibida no relatório). */
+export interface UsageStageDTO {
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+}
+
+export interface UsageDTO {
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  /** `true` quando o provedor não informou `usage` e os números foram estimados. */
+  estimated: boolean;
+  byStage: Record<string, UsageStageDTO>;
+  contextLimit: number;
+  /** Avisos de contexto reduzido / modelo alternativo. */
+  notices: string[];
+}
+
 export interface AnalysisDTO {
   id: string;
   title: string;
@@ -202,6 +222,8 @@ export interface AnalysisDTO {
   error: string | null;
   durationMs: number | null;
   model: string | null;
+  /** Chamadas e tokens gastos; null em análises antigas ou ainda sem chamadas. */
+  usage: UsageDTO | null;
   createdAt: string;
   updatedAt: string;
   results: AgentResultDTO[];

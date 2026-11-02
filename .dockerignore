@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.github
+db
+*.db
+*.db-journal
+.env
+.env.*
+!.env.example
+*.log
+worklog.md
+python-reference
+docs

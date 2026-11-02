@@ -54,6 +54,7 @@ export function createMemoryStore(): AnalysisStore {
         error: null,
         durationMs: null,
         model: input.model,
+        usage: null,
         createdAt: now,
         updatedAt: now,
         results: input.agentKeys.map((agentKey) => ({

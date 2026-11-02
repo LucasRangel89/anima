@@ -19,8 +19,22 @@ import {
   isFatalLLMError,
   isRateLimitError,
   LLMError,
+  MAX_RETRY_AFTER_MS,
   type LLM,
+  type LLMUsage,
 } from './llm';
+import {
+  addNotice,
+  contextLimit,
+  describeShrink,
+  emptyUsage,
+  estimateTokens,
+  fitTogether,
+  recordCall,
+  shrink,
+  type AnalysisUsage,
+} from './budget';
+import { AGENTS } from './agent-meta';
 import {
   AbortedError,
   createLimiter,
@@ -73,7 +87,8 @@ const pending = (): Map<string, RunPlan> => (g.__animaQueue ??= new Map());
 function readConfig(env: NodeJS.ProcessEnv = process.env) {
   const num = (v: string | undefined, d: number) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
   return {
-    concurrency: Math.floor(num(env.LLM_CONCURRENCY, 3)),
+    // Padrão 2 (era 3): provedores gratuitos devolvem 429 com três chamadas simultâneas.
+    concurrency: Math.floor(num(env.LLM_CONCURRENCY, 2)),
     timeoutMs: num(env.LLM_TIMEOUT_SECONDS, 180) * 1000,
     maxActive: Math.floor(num(env.ANIMA_MAX_ACTIVE, 3)),
     maxQueue: Math.floor(num(env.ANIMA_MAX_QUEUE, 8)),
@@ -140,31 +155,92 @@ export function describeError(error: unknown): string {
     if (error.status === 401 || error.status === 403)
       return 'Credenciais do LLM inválidas ou sem permissão. Verifique LLM_API_KEY.';
     if (error.status === 404) return 'Modelo ou endpoint não encontrado. Verifique LLM_MODEL e LLM_BASE_URL.';
-    if (error.status === 429) return 'Limite de requisições do provedor excedido. Reduza LLM_CONCURRENCY e tente de novo.';
+    if (error.status === 429) {
+      const wait = error.retryAfterMs ? ` O provedor pediu para aguardar ~${Math.round(error.retryAfterMs / 1000)}s.` : '';
+      const hint = process.env.LLM_FALLBACK_MODEL
+        ? ' O modelo alternativo (LLM_FALLBACK_MODEL) também está no limite.'
+        : ' Defina LLM_FALLBACK_MODEL para continuar com outro modelo, reduza LLM_CONCURRENCY ou tente mais tarde.';
+      return `Limite de requisições do provedor excedido.${wait}${hint}`;
+    }
     if (error.status && error.status >= 500) return `O provedor de LLM está instável (${error.status}). Tente novamente.`;
   }
   if (error instanceof TimeoutError) return `${error.message}. Tente novamente ou aumente LLM_TIMEOUT_SECONDS.`;
   return errorMessage(error);
 }
 
+interface CallResult {
+  text: string;
+  usage?: LLMUsage;
+  model: string;
+  /** `true` quando o LLM_FALLBACK_MODEL entrou em cena. */
+  fallbackUsed: boolean;
+}
+
+/** Espera longa demais para valer nova tentativa: melhor trocar de modelo do que travar a análise. */
+function waitsTooLong(error: unknown): boolean {
+  return error instanceof LLMError && (error.retryAfterMs ?? 0) > MAX_RETRY_AFTER_MS;
+}
+
 async function callLLM(
   llm: LLM,
   req: { system: string; user: string; label: string; maxTokens: number; temperature: number },
   signal: AbortSignal
-): Promise<string> {
+): Promise<CallResult> {
   const { timeoutMs } = readConfig();
+  const fallbackModel = (process.env.LLM_FALLBACK_MODEL ?? '').trim();
+
   // O limitador envolve a chamada inteira (inclusive pausas de retry), o que também desacelera a fila em caso de 429.
-  return limiter()(() =>
-    retry(
-      () => withTimeout((inner) => llm.complete({ ...req, signal: inner }), timeoutMs, req.label, signal),
-      {
-        attempts: MAX_ATTEMPTS,
-        shouldRetry: (e) => !isFatalLLMError(e) && !isAbortError(e) && !signal.aborted,
-        delayMs: (e, attempt) =>
-          isRateLimitError(e) ? (e instanceof LLMError && e.retryAfterMs) || 8_000 * attempt : 1_500 * attempt,
+  const attempt = (target: LLM, attempts: number) =>
+    limiter()(() =>
+      retry(
+        () => withTimeout((inner) => target.complete({ ...req, signal: inner }), timeoutMs, req.label, signal),
+        {
+          attempts,
+          shouldRetry: (e) =>
+            !isFatalLLMError(e) && !isAbortError(e) && !signal.aborted && !waitsTooLong(e),
+          delayMs: (e, n) =>
+            isRateLimitError(e) ? (e instanceof LLMError && e.retryAfterMs) || 8_000 * n : 1_500 * n,
+        }
+      )
+    );
+
+  try {
+    const result = await attempt(llm, MAX_ATTEMPTS);
+    return { ...result, model: llm.model, fallbackUsed: false };
+  } catch (error) {
+    // 429 persistente (ou espera absurda) e há modelo alternativo: uma tentativa, sem laço infinito.
+    const alternative = fallbackModel && isRateLimitError(error) && !signal.aborted ? llm.withModel?.(fallbackModel) : undefined;
+    if (!alternative) throw error;
+    const result = await attempt(alternative, 1);
+    return { ...result, model: alternative.model, fallbackUsed: true };
+  }
+}
+
+/** Contabiliza a chamada: usa o `usage` do provedor quando existe; senão, estima e marca como estimado. */
+function accountCall(
+  ctx: RunContext,
+  stage: string,
+  prompt: string,
+  result: CallResult
+): void {
+  const tokens = result.usage
+    ? {
+        prompt: result.usage.promptTokens,
+        completion: result.usage.completionTokens,
+        estimated: result.usage.estimated,
       }
-    )
-  );
+    : { prompt: estimateTokens(prompt), completion: estimateTokens(result.text), estimated: true };
+  recordCall(ctx.usage, stage, tokens);
+  if (result.fallbackUsed) {
+    addNotice(ctx.usage, `Limite do modelo principal atingido: a análise seguiu com ${result.model} (LLM_FALLBACK_MODEL).`);
+    // Rastreabilidade: o relatório deve dizer qual modelo realmente escreveu.
+    void safe(() => ctx.store.update(ctx.id, { model: result.model }));
+  }
+}
+
+function persistUsage(ctx: RunContext): Promise<void> {
+  const snapshot = JSON.stringify(ctx.usage);
+  return safe(() => ctx.store.update(ctx.id, { usage: snapshot }));
 }
 
 /* ───────────────────────── Persistência tolerante a exclusões ───────────────────────── */
@@ -194,6 +270,18 @@ function parseUserSources(raw: string | null): UserSourceInput[] {
   }
 }
 
+/** Restaura a contabilidade de uma execução anterior (retomada mantém os números já gastos). */
+function parseUsage(raw: string | null): AnalysisUsage | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<AnalysisUsage>;
+    if (!Array.isArray(parsed.notices) || typeof parsed.calls !== 'number') return null;
+    return { ...emptyUsage(contextLimit()), ...parsed } as AnalysisUsage;
+  } catch {
+    return null;
+  }
+}
+
 /* ───────────────────────── Etapas ───────────────────────── */
 
 interface RunContext {
@@ -207,6 +295,27 @@ interface RunContext {
   depth: Depth;
   userSources: UserSourceInput[];
   signal: AbortSignal;
+  /** Contabilidade de chamadas e tokens desta análise (persistida como JSON). */
+  usage: AnalysisUsage;
+  /** Contexto efetivo do modelo, para dimensionar dossiê e síntese. */
+  contextLimit: number;
+  /** Dossiê já reduzido para caber no contexto dos especialistas (calculado uma vez). */
+  dossierForAgents?: string;
+}
+
+/**
+ * Quanto sobra para o CONTEÚDO de entrada de uma etapa: limite − saída reservada − prompts fixos.
+ * Nunca abaixo de 1k tokens, para não gerar prompts degenerados.
+ */
+function inputRoom(ctx: RunContext, outputTokens: number, fixedText: string): number {
+  return Math.max(1_024, ctx.contextLimit - outputTokens - estimateTokens(fixedText) - 256);
+}
+
+/** Registra no relatório quando o conteúdo precisou ser reduzido para caber. */
+function noteShrink(ctx: RunContext, label: string, result: { method: string; before: number; after: number }): void {
+  if (result.method === 'nenhum') return;
+  const notice = describeShrink(label, result as Parameters<typeof describeShrink>[1]);
+  if (notice) addNotice(ctx.usage, notice);
 }
 
 async function runResearch(ctx: RunContext): Promise<string> {
@@ -216,19 +325,50 @@ async function runResearch(ctx: RunContext): Promise<string> {
   const gathered = await gatherSources({ title, hint, focus, kind, depth, userSources });
   await safe(() => store.update(id, { sources: JSON.stringify(gathered.sources) }));
 
-  const dossier = await callLLM(
+  // O contexto das fontes é a parte elástica do prompt: cabe o quanto o modelo suportar.
+  const emptyMessage = buildResearcherUserMessage(title, hint, kind, '', focus);
+  const room = inputRoom(ctx, DEPTH_CONFIG[depth].dossierTokens, `${RESEARCHER_PROMPT}\n${emptyMessage}`);
+  const fitted = shrink(gathered.context, room);
+  noteShrink(ctx, 'Dossiê de fontes', fitted);
+
+  const userMessage = buildResearcherUserMessage(title, hint, kind, fitted.text, focus);
+  const result = await callLLM(
     llm,
     {
       system: RESEARCHER_PROMPT,
-      user: buildResearcherUserMessage(title, hint, kind, gathered.context, focus),
+      user: userMessage,
       label: 'pesquisador',
       maxTokens: DEPTH_CONFIG[depth].dossierTokens,
       temperature: 0.2,
     },
     signal
   );
-  await safe(() => store.update(id, { research: dossier, researchStatus: 'done' }));
-  return dossier;
+  accountCall(ctx, 'pesquisador', `${RESEARCHER_PROMPT}\n${userMessage}`, result);
+  await persistUsage(ctx);
+
+  await safe(() => store.update(id, { research: result.text, researchStatus: 'done' }));
+  return result.text;
+}
+
+/** Nome legível de uma lente, para os avisos ("Análise de Personagens"). */
+function agentName(key: string): string {
+  return AGENTS.find((agent) => agent.key === key)?.name ?? key;
+}
+
+/** Dossiê reduzido para caber no contexto de um especialista (todas as lentes compartilham o mesmo). */
+function dossierForAgents(ctx: RunContext, dossier: string): string {
+  if (ctx.dossierForAgents === undefined) {
+    const emptyMessage = buildSpecialistUserMessage(ctx.title, ctx.hint, ctx.kind, '', ctx.focus);
+    const room = inputRoom(
+      ctx,
+      DEPTH_CONFIG[ctx.depth].maxTokens,
+      `${getSpecialistPrompt('structural', { depth: ctx.depth, kind: ctx.kind })}\n${emptyMessage}`
+    );
+    const fitted = shrink(dossier, room);
+    noteShrink(ctx, 'Dossiê enviado aos especialistas', fitted);
+    ctx.dossierForAgents = fitted.text;
+  }
+  return ctx.dossierForAgents;
 }
 
 async function runSpecialist(ctx: RunContext, key: AgentKey, dossier: string): Promise<void> {
@@ -237,20 +377,18 @@ async function runSpecialist(ctx: RunContext, key: AgentKey, dossier: string): P
   const startedAt = Date.now();
   await safe(() => store.updateAgent(id, key, { status: 'running', error: null }));
   try {
-    const content = await callLLM(
+    const system = getSpecialistPrompt(key, { depth, kind });
+    const userMessage = buildSpecialistUserMessage(title, hint, kind, dossierForAgents(ctx, dossier), focus);
+    const result = await callLLM(
       llm,
-      {
-        system: getSpecialistPrompt(key, { depth, kind }),
-        user: buildSpecialistUserMessage(title, hint, kind, dossier, focus),
-        label: `especialista:${key}`,
-        maxTokens: DEPTH_CONFIG[depth].maxTokens,
-        temperature: 0.5,
-      },
+      { system, user: userMessage, label: `especialista:${key}`, maxTokens: DEPTH_CONFIG[depth].maxTokens, temperature: 0.5 },
       signal
     );
+    accountCall(ctx, `especialista:${key}`, `${system}\n${userMessage}`, result);
+    await persistUsage(ctx);
     if (signal.aborted) return;
     await safe(() =>
-      store.updateAgent(id, key, { status: 'done', content, error: null, durationMs: Date.now() - startedAt })
+      store.updateAgent(id, key, { status: 'done', content: result.text, error: null, durationMs: Date.now() - startedAt })
     );
   } catch (error) {
     if (signal.aborted) {
@@ -287,30 +425,58 @@ async function runSynthesis(ctx: RunContext, dossier: string, row: AnalysisRow):
 
   await store.update(id, { status: 'synthesizing', synthesisStatus: 'running', error: null });
   try {
-    const synthesis = await callLLM(
+    // A síntese é o prompt mais pesado: dossiê + as N análises. Dividimos o orçamento entre as partes
+    // em vez de deixar o dossiê ocupar tudo e truncar silenciosamente as lentes do fim da lista.
+    const system = getSynthesisPrompt(depth, kind);
+    const present = AGENT_KEYS.filter((k) => !missing.includes(k));
+    const sections = [
+      // Dossiê na síntese só precisa reancorar fatos: metade do espaço das análises é suficiente.
+      { key: 'dossie', text: dossier },
+      ...present.map((k) => ({
+        key: k,
+        text: doneAgents.find((r) => r.agentKey === k)!.content!,
+      })),
+    ];
+    const emptyMessage = buildSynthesisUserMessage(title, hint, kind, '', [], missing, focus);
+    const room = inputRoom(ctx, DEPTH_CONFIG[depth].synthesisTokens, `${system}\n${emptyMessage}`);
+    const fitted = fitTogether(sections, room);
+    const textFor = (key: string) => fitted.parts.find((part) => part.key === key)?.text ?? '';
+
+    // Um aviso agregado rende mais que nove linhas ("análise X cortada", "análise Y cortada"…):
+    // o usuário precisa saber o que fazer, não a lista de vítimas.
+    const shrunk = fitted.parts.filter((part) => part.shrink.method !== 'nenhum');
+    if (shrunk.length > 0) {
+      const smallest = Math.min(...shrunk.map((part) => part.shrink.after));
+      const biggest = Math.max(...shrunk.map((part) => part.shrink.before));
+      const names = shrunk.filter((p) => p.key !== 'dossie').map((p) => agentName(p.key));
+      addNotice(
+        ctx.usage,
+        `Síntese com contexto reduzido: ${shrunk.length} de ${fitted.parts.length} textos foram condensados ou cortados ` +
+          `(o maior tinha ~${biggest.toLocaleString('pt-BR')} tokens; o menor ficou com ~${smallest.toLocaleString('pt-BR')}). ` +
+          `Contexto configurado: ${ctx.contextLimit.toLocaleString('pt-BR')} tokens. ` +
+          `Para um relatório mais fiel, use menos lentes, profundidade menor ou aumente LLM_CONTEXT_TOKENS.` +
+          (names.length ? ` Lentes afetadas: ${names.join(', ')}.` : '')
+      );
+    }
+
+    const userMessage = buildSynthesisUserMessage(
+      title,
+      hint,
+      kind,
+      textFor('dossie'),
+      present.map((k) => ({ agent: k, content: textFor(k) })),
+      missing,
+      focus
+    );
+    const result = await callLLM(
       llm,
-      {
-        system: getSynthesisPrompt(depth, kind),
-        user: buildSynthesisUserMessage(
-          title,
-          hint,
-          kind,
-          dossier,
-          AGENT_KEYS.filter((k) => !missing.includes(k)).map((k) => ({
-            agent: k,
-            content: doneAgents.find((r) => r.agentKey === k)!.content!,
-          })),
-          missing,
-          focus
-        ),
-        label: 'sintese',
-        maxTokens: DEPTH_CONFIG[depth].synthesisTokens,
-        temperature: 0.4,
-      },
+      { system, user: userMessage, label: 'sintese', maxTokens: DEPTH_CONFIG[depth].synthesisTokens, temperature: 0.4 },
       signal
     );
+    accountCall(ctx, 'sintese', `${system}\n${userMessage}`, result);
+    await persistUsage(ctx);
     if (signal.aborted) return;
-    await safe(() => store.update(id, { synthesis, synthesisStatus: 'done' }));
+    await safe(() => store.update(id, { synthesis: result.text, synthesisStatus: 'done' }));
   } catch (error) {
     if (signal.aborted) {
       await safe(() => store.update(id, { synthesisStatus: 'failed', error: 'Síntese cancelada por você.' }));
@@ -331,6 +497,17 @@ async function execute(id: string, plan: RunPlan, llm: LLM, signal: AbortSignal)
     const row = await store.get(id);
     if (!row) return;
 
+    const usage = parseUsage(row.usage) ?? emptyUsage(contextLimit());
+    // Diagnóstico antecipado: se o contexto mal comporta uma única saída desta profundidade,
+    // a síntese vai resumir tudo. Melhor avisar agora do que o usuário descobrir no relatório.
+    if (usage.calls === 0 && usage.contextLimit < DEPTH_CONFIG[asDepth(row.depth)].maxTokens * 2) {
+      addNotice(
+        usage,
+        `Contexto apertado: LLM_CONTEXT_TOKENS=${usage.contextLimit.toLocaleString('pt-BR')} é pouco para a profundidade ` +
+          `"${asDepth(row.depth)}", que pede até ${DEPTH_CONFIG[asDepth(row.depth)].maxTokens.toLocaleString('pt-BR')} tokens por lente. ` +
+          `A síntese receberá trechos reduzidos.`
+      );
+    }
     const ctx: RunContext = {
       store,
       llm,
@@ -342,6 +519,8 @@ async function execute(id: string, plan: RunPlan, llm: LLM, signal: AbortSignal)
       depth: asDepth(row.depth),
       userSources: parseUserSources(row.userSources),
       signal,
+      usage,
+      contextLimit: contextLimit(),
     };
 
     // Fase 1 — Pesquisador (falha aqui aborta a análise)

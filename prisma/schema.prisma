@@ -33,6 +33,7 @@ model Analysis {
   error           String?
   durationMs      Int?
   model           String? // modelo de LLM usado (rastreabilidade)
+  usage           String? // JSON: chamadas, tokens e avisos de contexto reduzido
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   results         AgentResult[]

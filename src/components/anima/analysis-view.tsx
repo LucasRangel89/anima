@@ -478,6 +478,36 @@ export function AnalysisView({ id }: { id: string }) {
             );
           })}
 
+          {a.usage && a.usage.calls > 0 && (
+            <details className="mb-4 rounded-xl border bg-card/60 px-4 py-3 text-sm print:open">
+              <summary className="cursor-pointer text-muted-foreground">
+                <span className="font-medium text-foreground">Recursos desta análise:</span>{' '}
+                {a.usage.calls} chamada(s) · {a.usage.totalTokens.toLocaleString('pt-BR')} tokens
+                {a.usage.estimated ? ' (estimados)' : ''}
+                {a.usage.notices.length > 0 && (
+                  <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                    {a.usage.notices.length} aviso(s) de contexto
+                  </span>
+                )}
+              </summary>
+              <ul className="mt-3 space-y-1 text-muted-foreground">
+                <li>
+                  Entrada: {a.usage.promptTokens.toLocaleString('pt-BR')} tokens · saída:{' '}
+                  {a.usage.completionTokens.toLocaleString('pt-BR')} tokens
+                  {a.usage.estimated
+                    ? ' — o provedor não informou o uso real; os números vêm da contagem de caracteres.'
+                    : ''}
+                </li>
+                <li>Limite de contexto configurado: {a.usage.contextLimit.toLocaleString('pt-BR')} tokens (LLM_CONTEXT_TOKENS).</li>
+                {a.usage.notices.map((notice) => (
+                  <li key={notice} className="text-foreground">
+                    • {notice}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
           <p className="pb-4 text-center text-sm text-muted-foreground">
             Conteúdo gerado por IA. Afirmações marcadas com † vêm do conhecimento prévio do modelo e merecem checagem.
           </p>

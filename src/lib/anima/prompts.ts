@@ -504,7 +504,7 @@ export function buildSynthesisUserMessage(
   return `${workHeader(title, hint, kind, focus)}
 
 <dossie>
-${dossier.slice(0, 7000)}
+${dossier}
 </dossie>
 
 ${blocks}
