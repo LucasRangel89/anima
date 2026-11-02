@@ -88,3 +88,42 @@ jobs:
           LLM_PROVIDER: mock
           # Aqui há banco de verdade: pular o contrato do Prisma seria falso verde.
           ANIMA_REQUIRE_PRISMA_TESTS: '1'
+
+  # Interface de verdade, num navegador de verdade. É o único teste que não roda no sandbox de desenvolvimento
+  # (sem navegador), por isso ganha job próprio no CI. Provedor mock e store em memória: nada de cota gasta.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Gerar client do Prisma
+        run: npx prisma generate
+
+      - name: Instalar Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Testes de interface
+        run: npx playwright test
+        env:
+          CI: '1'
+          LLM_PROVIDER: mock
+          ANIMA_STORE: memory
+          ANIMA_RATE_LIMIT: 'off'
+
+      - name: Guardar relatório em falha
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

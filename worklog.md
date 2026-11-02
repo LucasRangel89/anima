@@ -307,3 +307,43 @@ histórico; (4) sem fila e sem lentes — leitura cruzada, não nova bateria; (5
 
 - Comparação gerada por modelo real e a página clicada em navegador: mesma limitação de rede/ambiente dos
   itens anteriores.
+
+---
+
+## Fase 4 — higiene: e2e, limites de uso, proposta do SQLite
+
+**Contexto.** As fases anteriores entregaram recursos; esta fecha as bordas: a interface testada num navegador
+de verdade, um teto para uso publicado e a decisão do Prisma escrita — sem executar.
+
+### Constituído
+
+- **e2e com Playwright** (`playwright.config.ts`, `tests/e2e/`): servidor próprio na porta 3100, provedor mock,
+  store em memória, `MOCK_DELAY_MS=20`. Três cenários: formulário → relatório → **pergunta respondida** →
+  **download do cofre .zip**; tema + navegação para `/metodo`; `/comparar` com duas análises criadas pela API,
+  geração, recarga (histórico persistido), download `.md` e remoção.
+- **Job `e2e` no CI**: instala Chromium com dependências de sistema, roda `npx playwright test` e guarda o
+  relatório em caso de falha. O sandbox de desenvolvimento **não** baixa navegador (a CDN é bloqueada), então
+  este é o único teste cuja execução acontece exclusivamente no GitHub Actions.
+- **Limites de uso** (`src/lib/anima/rate-limit.ts`): janela deslizante em memória, 20 análises/hora e 120
+  chamadas curtas/hora por processo, configuráveis (`ANIMA_RATE_LIMIT_ANALYSES`, `ANIMA_RATE_LIMIT_EXTRA`,
+  `ANIMA_RATE_LIMIT=off`), com `429` + `Retry-After`. Ligados em criação de análise, perguntas e comparações.
+- **`docs/PROPOSTA-SQLITE.md`**: custo, risco e critério para trocar Prisma por SQLite direto. **Proposta**,
+  não execução.
+
+### Verificado
+
+- 6 testes novos do limitador (borda da janela, deslizamento, chaves independentes, mensagem/`Retry-After`,
+  desligamento e teto vindo da env). Suíte completa: **172 testes (171 passam, 1 pulado — Prisma local)**.
+- **Limite de verdade por HTTP**: servidor com `ANIMA_RATE_LIMIT_ANALYSES=1` → primeiro POST `201`, segundo
+  `429` com `retry-after: 3600`; a análise criada concluiu (`completed 100`) e uma pergunta gravou resposta.
+- **Token de acesso por HTTP** (com `ANIMA_ACCESS_TOKEN`): página sem token `401`, API sem token `401`, header
+  `x-anima-token` `200`, `?token=` `307` para a URL limpa, cookie `anima_token` `200`.
+- **Auditoria de UI** nas rotas novas com servidor real: `/`, `/comparar`, `/metodo` — 0 problemas de contraste
+  e 0 de estrutura. Um defeito encontrado e corrigido: o `<title>` de `/comparar` saía duplicado
+  ("· ANIMA · ANIMA") na primeira versão.
+
+### Não verificado
+
+- **Execução do e2e**: escrita e configurada, mas o Chromium não pôde ser baixado neste sandbox. A prova é o
+  job do CI — se falhar, volto a ele.
+- Troca do Prisma: deliberadamente não feita.

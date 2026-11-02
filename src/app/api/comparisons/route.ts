@@ -10,6 +10,7 @@ import { createLLM, isFatalLLMError, isRateLimitError } from '@/lib/anima/llm';
 import { getStore } from '@/lib/anima/store-index';
 import { firstIssue, comparisonSchema, listQuerySchema } from '@/lib/anima/validation';
 import { getSystemStatus } from '@/lib/anima/status';
+import { extraCallRateLimit, rateLimitResponse } from '@/lib/anima/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,6 +38,15 @@ export async function POST(req: NextRequest) {
     const status = getSystemStatus();
     if (!status.configured) {
       return NextResponse.json({ error: status.message ?? 'O LLM não está configurado.' }, { status: 503 });
+    }
+
+    const limit = extraCallRateLimit();
+    if (!limit.ok) {
+      const { message, retryAfterSeconds } = rateLimitResponse(limit, 'perguntas e comparações');
+      return NextResponse.json(
+        { error: message },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } }
+      );
     }
 
     const store = await getStore();

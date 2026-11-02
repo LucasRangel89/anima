@@ -13,6 +13,7 @@ import {
 } from '@/lib/anima/orchestrator';
 import { getSystemStatus } from '@/lib/anima/status';
 import { getStore } from '@/lib/anima/store-index';
+import { analysisRateLimit, rateLimitResponse } from '@/lib/anima/rate-limit';
 import { createAnalysisSchema, firstIssue, listQuerySchema, validateUserSources } from '@/lib/anima/validation';
 
 export const runtime = 'nodejs';
@@ -32,6 +33,16 @@ export async function POST(req: NextRequest) {
     const status = getSystemStatus();
     if (!status.configured) {
       return NextResponse.json({ error: status.message ?? 'O LLM não está configurado.' }, { status: 503 });
+    }
+
+    // Segunda barreira depois do token de acesso: impede que um script queime a cota em minutos.
+    const limit = analysisRateLimit();
+    if (!limit.ok) {
+      const { message, retryAfterSeconds } = rateLimitResponse(limit, 'análises');
+      return NextResponse.json(
+        { error: message },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } }
+      );
     }
 
     const store = await getStore();

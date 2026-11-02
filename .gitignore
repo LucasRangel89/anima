@@ -33,3 +33,8 @@ site/
 
 # relatórios de avaliação (locais, dependem do modelo que você usa)
 eval/
+
+# e2e (Playwright)
+playwright-report/
+test-results/
+blob-report/
