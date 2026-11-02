@@ -262,10 +262,11 @@ O `.env.example` traz blocos prontos para **Gemini** (endpoint OpenAI-compatíve
 ## Qualidade
 
 ```bash
-npm test          # 97 testes (node:test)
+npm test          # 125 testes (node:test)
 npm run typecheck # tsc --noEmit
 npm run lint      # eslint
 npm run check     # os três em sequência
+npm run eval      # qualidade real: 5 obras contra o modelo configurado (opt-in, custa chamadas)
 npm run doctor    # diagnóstico do ambiente (banco, modelo, fontes, porta)
 npm run audit:ui  # contraste WCAG do tema + estrutura das páginas
 ```
@@ -277,7 +278,24 @@ Cobertura de testes: pipeline completo (mock), fila, cancelamento, retomada, fal
 - **`tests/store-contract.test.ts`** roda a mesma suíte de contrato contra o store de memória **e** contra o Prisma. Na memória, sempre. No Prisma, quando `DATABASE_URL` e o client gerado estiverem disponíveis — caso contrário a suíte do banco é **pulada com motivo**, nunca passada em silêncio.
 - **`tests/budget.test.ts`** prova que a estimativa de tokens é conservadora, que a redução é determinística e que nenhum prompt passa do contexto configurado.
 - **`tests/fallback.test.ts`** sobe um servidor que devolve 429 com `Retry-After` de 15 minutos e verifica que a análise **termina com o modelo alternativo** (e que, sem alternativo, falha rápido e com mensagem clara — sem ficar horas esperando).
+- **`tests/eval.test.ts`** protege a própria régua: contagem de palavras, faixa por profundidade, seção "Limites e verificações" e a verificação de referências — que **nunca** transforma "sem rede" ou "outro autor com o mesmo ano" em "confirmada".
 - **CI no GitHub Actions** (`.github/workflows/ci.yml`): tipos, lint, testes com o contrato do Prisma rodando de verdade, auditoria de UI e build — a cada push e pull request.
+
+### Avaliar a qualidade do que sai (`npm run eval`)
+
+`npm test` prova que o pipeline funciona; não prova que a prosa é boa. `npm run eval` roda **cinco obras de
+referência** (livro brasileiro, romance estrangeiro, filme, série, jogo) no modelo que você configurou e
+escreve `eval/relatorio.md`:
+
+| Verificação | O que olha |
+| --- | --- |
+| **Forma** | cada lente dentro da faixa de palavras da profundidade escolhida (±25%), com a seção "Limites e verificações" e marcadores † |
+| **Cobertura** | termos que uma análise honesta daquela obra quase certamente toca (ex.: Capitu e Bento, em *Dom Casmurro*) |
+| **Referências** | cada "Autor, *Obra*, ano" e "Autor (ano)" conferido na Open Library e no Crossref: `confirmada`, `duvidosa` ou `nao_verificada` |
+
+Nada disso reprova automaticamente — o relatório sinaliza, você decide. Sem rede, as referências ficam
+`nao_verificada` (jamais "confirmadas" por omissão). Custa chamadas reais: fica fora de `npm test` e fora do CI,
+e `npm run eval -- --mock` só serve para conferir o encanamento.
 
 ### Site publicado (apresentação)
 

@@ -145,3 +145,55 @@ registro npm. Isso define o que pôde ser comprovado e o que ficou para a máqui
 - Chamada real a Gemini/Groq/OpenRouter/Ollama: a rede do sandbox bloqueia os três primeiros; Ollama exigiria
   um modelo local de vários GB. O caminho está coberto por servidor OpenAI-compatível local.
 - Interface renderizada em navegador: segue sem navegador executável aqui.
+
+---
+
+## Fase 2 — qualidade mensurável
+
+**Contexto.** Até aqui os testes provavam que o pipeline **funciona** — fila, retomada, contexto, 429, banco.
+Nada media se o que sai é **bom**. A Fase 2 cria uma régua externa ao gosto do autor: forma, cobertura e
+referências conferíveis, rodada contra um modelo real, fora do `npm test`.
+
+### O que foi construído
+
+- **Cinco obras de referência** (`GOLDEN_WORKS`, em `src/lib/anima/eval.ts`), uma por meio: *Dom Casmurro*
+  (livro brasileiro), *Cem Anos de Solidão* (romance estrangeiro traduzido), *Cidade de Deus* (filme),
+  *Breaking Bad* (série) e *Disco Elysium* (jogo). Cada uma registra **por que** está no conjunto e os termos
+  que uma análise honesta quase certamente toca.
+- **`npm run eval`** roda as cinco em `depth: brief` (Panorama, ~350–500 palavras por lente), grava
+  `eval/relatorio.md` e `eval/relatorio.json`. Opt-in: custa chamadas reais, então não entra no `npm test`
+  nem no CI. `--only=<id>` roda uma; `--offline` pula a conferência de referências; `--mock` ensaia o
+  encanamento e **avisa no relatório que o resultado não vale**.
+- **Três checagens, todas informativas** (não falham a execução):
+  1. **Forma** — faixa de palavras da profundidade com tolerância de 25%, presença de "Limites e
+     verificações" e contagem de †. Prolixidão conta como defeito tanto quanto texto curto.
+  2. **Cobertura** — termos esperados por obra; ausência é sinalizada, não reprovada (um recorte legítimo
+     pode não falar de tudo).
+  3. **Referências** — `Autor, *Obra*, ano` e `Autor (ano)` extraídos e conferidos em Open Library e Crossref.
+- **Honestidade da conferência**: `confirmada` exige **autor + título + ano** compatíveis (folga de 1 ano).
+  Rede fora do ar ou HTTP de erro → `nao_verificada`. Homônimo com o mesmo ano ou título sem autor
+  compatível → `duvidosa`. Nunca "confirmada por omissão" — é o teste que mais importa aqui.
+
+### Verificado
+
+- **21 testes novos** (`tests/eval.test.ts`): contagem de palavras com marcação/links/código, aceitação do
+  heading em vários níveis, faixa por profundidade (curto **e** longo), ausência de "Limites", composição do
+  conjunto (5 obras, 5 meios, ids únicos), extração e deduplicação de referências, e cinco cenários de
+  verificação com `fetch` falso — incluindo **mesmo título/ano com outro autor** e **ano incompatível**.
+- **Execução ponta a ponta** de `npm run eval -- --mock --offline`: 5/5 concluídas, relatório gerado com
+  tabela-resumo, seções fora da faixa (mock escreve ~40 palavras) e cobertura apontando termos ausentes.
+- **Caminho de erro**: provedor sem configuração → análise `failed`, e o relatório agora traz a **mensagem do
+  erro** e "nenhuma seção concluída — não há o que medir" em vez de "tudo dentro do esperado".
+- **Códigos de saída**: `2` para mock sem `--mock` e para obra inexistente; `0` no ensaio.
+- **Forma das APIs conferidas por requisição real** (via leitor de páginas, já que o `bash` do sandbox não
+  alcança esses domínios): `openlibrary.org/search.json` devolve `docs[].title` e `first_publish_year`
+  (*Dom Casmurro* aparece com 1899 e 1900 — daí a folga de 1 ano); `api.crossref.org/works` devolve
+  `message.items[].title/author/issued.date-parts`.
+- Suíte completa: **125 testes (124 passam, 1 pulado — Prisma local)**; `typecheck` e `lint` limpos.
+
+### Não verificado
+
+- **Chamada real a um LLM**: nenhum provedor é alcançável deste sandbox; o `npm run eval` de verdade precisa
+  rodar com a chave do usuário. O que está provado é o encanamento (mock) e a régua (testes).
+- **Consulta ao vivo à Open Library/Crossref**: a rede do `bash` bloqueia os dois domínios. A verificação foi
+  validada com `fetch` falso e a **forma** das respostas foi confirmada por requisição real fora do processo.

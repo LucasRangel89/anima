@@ -30,3 +30,6 @@ __pycache__/
 
 # site gerado (publicado pelo workflow Pages)
 site/
+
+# relatórios de avaliação (locais, dependem do modelo que você usa)
+eval/
