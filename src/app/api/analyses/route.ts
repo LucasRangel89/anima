@@ -1,55 +1,48 @@
 // ANIMA — API: criação de análises (POST) e histórico (GET)
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { runAnalysisPipeline } from '@/lib/anima/orchestrator';
 import { toAnalysisSummaryDTO } from '@/lib/anima/dto';
-import { AGENT_KEYS } from '@/lib/anima/types';
+import { getSystemStatus } from '@/lib/anima/llm';
+import { activeRunCount, maxActiveRuns, reapOrphans, startAnalysis } from '@/lib/anima/orchestrator';
+import { getStore } from '@/lib/anima/store-index';
+import { createAnalysisSchema, firstIssue } from '@/lib/anima/validation';
 
-const MAX_RUNNING = 3;
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => null);
-    const title = typeof body?.title === 'string' ? body.title.trim() : '';
+    const parsed = createAnalysisSchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ error: firstIssue(parsed.error) }, { status: 400 });
+    }
+    const { title, hint, kind, depth, force } = parsed.data;
 
-    if (title.length < 2 || title.length > 160) {
-      return NextResponse.json(
-        { error: 'Informe um título com entre 2 e 160 caracteres.' },
-        { status: 400 }
-      );
+    const status = getSystemStatus();
+    if (!status.configured) {
+      return NextResponse.json({ error: status.message ?? 'O LLM não está configurado.' }, { status: 503 });
     }
 
-    // Limite de análises simultâneas (proteção de custo/recursos)
-    const running = await db.analysis.count({
-      where: { status: { in: ['researching', 'analyzing'] } },
-    });
-    if (running >= MAX_RUNNING) {
+    const store = await getStore();
+
+    // Reaproveita uma análise equivalente já concluída (evita gasto de API), salvo pedido em contrário
+    if (!force) {
+      const existing = await store.findLatestCompleted(title, kind, depth, hint);
+      if (existing) {
+        return NextResponse.json({ id: existing.id, reused: true });
+      }
+    }
+
+    await reapOrphans();
+    if (activeRunCount() >= maxActiveRuns()) {
       return NextResponse.json(
-        { error: `Já existem ${running} análises em andamento. Aguarde uma concluir.` },
+        { error: `Já existem ${activeRunCount()} análises em andamento. Aguarde uma concluir.` },
         { status: 429 }
       );
     }
 
-    const analysis = await db.analysis.create({
-      data: {
-        title,
-        status: 'researching',
-        researchStatus: 'running',
-        results: {
-          create: AGENT_KEYS.map((key) => ({ agentKey: key, status: 'pending' })),
-        },
-      },
-      include: { results: true },
-    });
-
-    // Dispara o pipeline em background — o frontend acompanha via polling
-    void runAnalysisPipeline(analysis.id);
-
-    return NextResponse.json(
-      { id: analysis.id, summary: toAnalysisSummaryDTO(analysis) },
-      { status: 201 }
-    );
+    const analysis = await startAnalysis({ title, hint, kind, depth });
+    return NextResponse.json({ id: analysis.id, reused: false }, { status: 201 });
   } catch (error) {
     console.error('[POST /api/analyses]', error);
     return NextResponse.json({ error: 'Falha ao iniciar a análise.' }, { status: 500 });
@@ -58,11 +51,9 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   try {
-    const rows = await db.analysis.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-      include: { results: true },
-    });
+    await reapOrphans();
+    const store = await getStore();
+    const rows = await store.list(30);
     return NextResponse.json({ analyses: rows.map(toAnalysisSummaryDTO) });
   } catch (error) {
     console.error('[GET /api/analyses]', error);

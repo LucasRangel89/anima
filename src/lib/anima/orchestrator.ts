@@ -1,284 +1,421 @@
 // ANIMA — Orquestrador: o cérebro do sistema.
-// Fluxo: Pesquisador (web search + LLM) -> 6 Especialistas em paralelo -> Consolidação.
-// O progresso de cada agente é persistido individualmente para a UI acompanhar ao vivo.
+//
+// Fluxo:  Pesquisador (fontes + dossiê) → 8 Especialistas (concorrência limitada) → Síntese (Curador)
+//
+// Decisões de arquitetura:
+//  • Persistência atrás de `AnalysisStore` (testável sem banco).
+//  • Concorrência de LLM limitada globalmente (LLM_CONCURRENCY) em vez de "disparo escalonado" fixo.
+//  • Cada agente persiste seu estado individualmente → a UI mostra progresso e resultados parciais.
+//  • Falha de um especialista não aborta a análise; falha do Pesquisador sim (os demais dependem do dossiê).
+//  • Execuções ativas ficam em um registro; linhas "ativas" sem execução (ex.: servidor reiniciado)
+//    são marcadas como `interrupted` por `reapOrphans()` e podem ser retomadas.
+//  • As execuções rodam no processo Node (exige servidor persistente; não use funções serverless).
 
-import ZAI from 'z-ai-web-dev-sdk';
-import { db } from '@/lib/db';
-import { AGENT_KEYS, type AgentKey } from './types';
+import { createLLM, isFatalLLMError, isRateLimitError, LLMError, type LLM } from './llm';
+import { createLimiter, errorMessage, retry, TimeoutError, withTimeout } from './async-utils';
+import { gatherSources } from './search';
 import {
+  DEPTH_CONFIG,
   RESEARCHER_PROMPT,
-  getSpecialistPrompt,
-  buildSpecialistUserMessage,
   buildResearcherUserMessage,
+  buildSpecialistUserMessage,
+  buildSynthesisUserMessage,
+  getSpecialistPrompt,
+  getSynthesisPrompt,
 } from './prompts';
+import { getStore } from './store-index';
+import type { AnalysisRow, AnalysisStore } from './store';
+import { AGENT_KEYS, isAgentKey, type AgentKey, type Depth, type WorkKind } from './types';
 
-const LLM_TIMEOUT_MS = 200_000; // 200s por chamada de LLM
-const SEARCH_TIMEOUT_MS = 30_000; // 30s por busca web
-const MAX_ATTEMPTS = 3; // até 2 retries automáticos por chamada
-const AGENT_STAGGER_MS = 2_500; // espaçamento entre disparos dos especialistas
+const MAX_ATTEMPTS = 3;
+const MIN_ANALYSES_FOR_SYNTHESIS = 3;
+const ORPHAN_GRACE_MS = 20_000;
 
-/** Envelopa uma promise com timeout. */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label}: tempo limite de ${Math.round(ms / 1000)}s excedido`)), ms)
-    ),
-  ]);
+/* ───────────────────────── Estado compartilhado do processo ───────────────────────── */
+
+interface Globals {
+  __animaRuns?: Map<string, Promise<void>>;
+  __animaCancelled?: Set<string>;
+  __animaLimiter?: { max: number; run: ReturnType<typeof createLimiter> };
+}
+const g = globalThis as unknown as Globals;
+const runs = (): Map<string, Promise<void>> => (g.__animaRuns ??= new Map());
+const cancelled = (): Set<string> => (g.__animaCancelled ??= new Set());
+
+function readConfig(env: NodeJS.ProcessEnv = process.env) {
+  const num = (v: string | undefined, d: number) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+  return {
+    concurrency: Math.floor(num(env.LLM_CONCURRENCY, 3)),
+    timeoutMs: num(env.LLM_TIMEOUT_SECONDS, 180) * 1000,
+    maxActive: Math.floor(num(env.ANIMA_MAX_ACTIVE, 3)),
+  };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/** Erros de limite de requisições (429) merecem espera mais longa. */
-function isRateLimitError(error: unknown): boolean {
-  return error instanceof Error && /429|too many requests/i.test(error.message);
-}
-
-/** Chamada de LLM com retry, timeout e backoff adaptativo. Usa a role 'assistant' como prompt de sistema (conforme SDK). */
-async function callLLM(
-  zai: Awaited<ReturnType<typeof ZAI.create>>,
-  systemPrompt: string,
-  userMessage: string,
-  label: string
-): Promise<string> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    if (attempt > 1) {
-      const delay = isRateLimitError(lastError) ? 9_000 * (attempt - 1) : 1_500 * (attempt - 1);
-      await sleep(delay);
-    }
-    try {
-      const completion = await withTimeout(
-        zai.chat.completions.create({
-          messages: [
-            { role: 'assistant', content: systemPrompt },
-            { role: 'user', content: userMessage },
-          ],
-          thinking: { type: 'disabled' },
-        }),
-        LLM_TIMEOUT_MS,
-        label
-      );
-      const content = completion.choices[0]?.message?.content?.trim();
-      if (!content) throw new Error(`${label}: resposta vazia do modelo`);
-      return content;
-    } catch (error) {
-      lastError = error;
-    }
+/** Limitador compartilhado por TODAS as análises em andamento. */
+function limiter() {
+  const { concurrency } = readConfig();
+  if (!g.__animaLimiter || g.__animaLimiter.max !== concurrency) {
+    g.__animaLimiter = { max: concurrency, run: createLimiter(concurrency) };
   }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  return g.__animaLimiter.run;
 }
 
-/** Agente Pesquisador: busca na web e compila o dossiê factual. */
-async function runResearcher(
-  zai: Awaited<ReturnType<typeof ZAI.create>>,
-  title: string
+export function isRunActive(id: string): boolean {
+  return runs().has(id);
+}
+export function activeRunCount(): number {
+  return runs().size;
+}
+export function maxActiveRuns(): number {
+  return readConfig().maxActive;
+}
+/** Aguarda o término da execução (útil em testes). */
+export async function waitForRun(id: string): Promise<void> {
+  await runs().get(id);
+}
+
+/* ───────────────────────── Chamada de LLM com retry ───────────────────────── */
+
+/** Traduz erros técnicos em mensagens úteis para o usuário. */
+export function describeError(error: unknown): string {
+  if (error instanceof LLMError) {
+    if (error.status === 401 || error.status === 403)
+      return 'Credenciais do LLM inválidas ou sem permissão. Verifique LLM_API_KEY.';
+    if (error.status === 404) return 'Modelo ou endpoint não encontrado. Verifique LLM_MODEL e LLM_BASE_URL.';
+    if (error.status === 429) return 'Limite de requisições do provedor excedido. Reduza LLM_CONCURRENCY e tente de novo.';
+    if (error.status && error.status >= 500) return `O provedor de LLM está instável (${error.status}). Tente novamente.`;
+  }
+  if (error instanceof TimeoutError) return `${error.message}. Tente novamente ou aumente LLM_TIMEOUT_SECONDS.`;
+  return errorMessage(error);
+}
+
+async function callLLM(
+  llm: LLM,
+  req: { system: string; user: string; label: string; maxTokens: number; temperature: number }
 ): Promise<string> {
-  // Duas buscas em paralelo: enredo/personagens + contexto/recepção
-  const [plotResults, contextResults] = await Promise.all([
-    withTimeout(
-      zai.functions.invoke('web_search', {
-        query: `"${title}" obra resumo enredo personagens`,
-        num: 6,
-      }),
-      SEARCH_TIMEOUT_MS,
-      'Busca web (enredo)'
-    ).catch(() => []),
-    withTimeout(
-      zai.functions.invoke('web_search', {
-        query: `"${title}" análise crítica contexto histórico recepção`,
-        num: 6,
-      }),
-      SEARCH_TIMEOUT_MS,
-      'Busca web (contexto)'
-    ).catch(() => []),
-  ]);
-
-  const seen = new Set<string>();
-  const searchContext = [...plotResults, ...contextResults]
-    .filter((r) => {
-      if (seen.has(r.url)) return false;
-      seen.add(r.url);
-      return true;
-    })
-    .map((r) => `### ${r.name} (${r.host_name})\n${r.snippet}\nURL: ${r.url}`)
-    .join('\n\n');
-
-  return callLLM(
-    zai,
-    RESEARCHER_PROMPT,
-    buildResearcherUserMessage(title, searchContext),
-    'Pesquisador'
+  const { timeoutMs } = readConfig();
+  // O limitador envolve a chamada inteira (inclusive pausas de retry), o que também desacelera a fila em caso de 429.
+  return limiter()(() =>
+    retry(
+      () => withTimeout((signal) => llm.complete({ ...req, signal }), timeoutMs, req.label),
+      {
+        attempts: MAX_ATTEMPTS,
+        shouldRetry: (e) => !isFatalLLMError(e),
+        delayMs: (e, attempt) =>
+          isRateLimitError(e)
+            ? (e instanceof LLMError && e.retryAfterMs) || 8_000 * attempt
+            : 1_500 * attempt,
+      }
+    )
   );
 }
 
-/** Executa um especialista individual e persiste o resultado. */
-async function runSpecialist(
-  zai: Awaited<ReturnType<typeof ZAI.create>>,
-  analysisId: string,
-  agentKey: AgentKey,
-  title: string,
-  dossier: string
-): Promise<void> {
-  const startedAt = Date.now();
-  await db.agentResult.update({
-    where: { analysisId_agentKey: { analysisId, agentKey } },
-    data: { status: 'running', error: null },
-  });
+/* ───────────────────────── Persistência tolerante a exclusões ───────────────────────── */
+
+/** Se o usuário excluir a análise durante a execução, escritas posteriores falham: ignoramos. */
+async function safe(fn: () => Promise<unknown>): Promise<void> {
   try {
-    const content = await callLLM(
-      zai,
-      getSpecialistPrompt(agentKey),
-      buildSpecialistUserMessage(title, dossier),
-      `Especialista ${agentKey}`
-    );
-    await db.agentResult.update({
-      where: { analysisId_agentKey: { analysisId, agentKey } },
-      data: { status: 'done', content, durationMs: Date.now() - startedAt },
-    });
+    await fn();
   } catch (error) {
-    await db.agentResult.update({
-      where: { analysisId_agentKey: { analysisId, agentKey } },
-      data: {
-        status: 'failed',
-        error: error instanceof Error ? error.message : String(error),
-        durationMs: Date.now() - startedAt,
-      },
-    });
+    console.warn('[anima] escrita ignorada:', errorMessage(error));
   }
 }
 
-/**
- * Pipeline completo de uma análise. Executado em background após o POST.
- * Falha do Pesquisador aborta tudo (os especialistas dependem do dossiê);
- * falha de um especialista não afeta os demais (análise parcial é válida).
- */
-export async function runAnalysisPipeline(analysisId: string): Promise<void> {
+/* ───────────────────────── Etapas ───────────────────────── */
+
+interface RunContext {
+  store: AnalysisStore;
+  llm: LLM;
+  id: string;
+  title: string;
+  hint: string | null;
+  kind: WorkKind;
+  depth: Depth;
+}
+
+async function runResearch(ctx: RunContext): Promise<string> {
+  const { store, llm, id, title, hint, kind } = ctx;
+  await store.update(id, { status: 'researching', researchStatus: 'running', error: null });
+
+  const gathered = await gatherSources({ title, hint, kind });
+  await safe(() => store.update(id, { sources: JSON.stringify(gathered.sources) }));
+
+  const dossier = await callLLM(llm, {
+    system: RESEARCHER_PROMPT,
+    user: buildResearcherUserMessage(title, hint, kind, gathered.context),
+    label: 'pesquisador',
+    maxTokens: 3200,
+    temperature: 0.2,
+  });
+  await safe(() => store.update(id, { research: dossier, researchStatus: 'done' }));
+  return dossier;
+}
+
+async function runSpecialist(ctx: RunContext, key: AgentKey, dossier: string): Promise<void> {
+  const { store, llm, id, title, hint, kind, depth } = ctx;
+  if (cancelled().has(id)) return;
   const startedAt = Date.now();
+  await safe(() => store.updateAgent(id, key, { status: 'running', error: null }));
   try {
-    const analysis = await db.analysis.findUnique({ where: { id: analysisId } });
-    if (!analysis) return;
-
-    const zai = await ZAI.create();
-
-    // Fase 1 — Pesquisador
-    await db.analysis.update({
-      where: { id: analysisId },
-      data: { status: 'researching', researchStatus: 'running', error: null },
+    const content = await callLLM(llm, {
+      system: getSpecialistPrompt(key, { depth, kind }),
+      user: buildSpecialistUserMessage(title, hint, kind, dossier),
+      label: `especialista:${key}`,
+      maxTokens: DEPTH_CONFIG[depth].maxTokens,
+      temperature: 0.5,
     });
-    const dossier = await runResearcher(zai, analysis.title);
-    await db.analysis.update({
-      where: { id: analysisId },
-      data: { research: dossier, researchStatus: 'done', status: 'analyzing' },
-    });
-
-    // Fase 2 — Especialistas em paralelo com disparo escalonado
-    // (evita estourar o limite de requisições simultâneas da API de LLM;
-    //  cada um grava seu resultado ao terminar)
-    await Promise.all(
-      AGENT_KEYS.map((key, i) =>
-        sleep(i * AGENT_STAGGER_MS).then(() =>
-          runSpecialist(zai, analysisId, key, analysis.title, dossier)
-        )
-      )
-    );
-
-    // Fase 3 — Consolidação
-    await db.analysis.update({
-      where: { id: analysisId },
-      data: { status: 'completed', durationMs: Date.now() - startedAt },
-    });
+    await safe(() => store.updateAgent(id, key, { status: 'done', content, error: null, durationMs: Date.now() - startedAt }));
   } catch (error) {
-    await db.analysis
-      .update({
-        where: { id: analysisId },
-        data: {
-          status: 'failed',
-          researchStatus: 'failed',
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Falha inesperada durante a análise. Tente novamente.',
-          durationMs: Date.now() - startedAt,
-        },
+    await safe(() =>
+      store.updateAgent(id, key, { status: 'failed', error: describeError(error), durationMs: Date.now() - startedAt })
+    );
+  }
+}
+
+async function runSynthesis(ctx: RunContext, dossier: string, row: AnalysisRow): Promise<void> {
+  const { store, llm, id, title, hint, kind, depth } = ctx;
+  const doneAgents = row.results.filter((r) => r.status === 'done' && r.content && isAgentKey(r.agentKey));
+  const missing = AGENT_KEYS.filter((k) => !doneAgents.some((r) => r.agentKey === k));
+
+  if (doneAgents.length < MIN_ANALYSES_FOR_SYNTHESIS) {
+    await safe(() =>
+      store.update(id, {
+        synthesisStatus: 'failed',
+        error: `Síntese não gerada: apenas ${doneAgents.length} especialista(s) concluíram (mínimo ${MIN_ANALYSES_FOR_SYNTHESIS}).`,
       })
-      .catch(() => undefined);
+    );
+    return;
+  }
+
+  await store.update(id, { status: 'synthesizing', synthesisStatus: 'running', error: null });
+  try {
+    const synthesis = await callLLM(llm, {
+      system: getSynthesisPrompt(depth, kind),
+      user: buildSynthesisUserMessage(
+        title,
+        hint,
+        kind,
+        dossier,
+        AGENT_KEYS.filter((k) => !missing.includes(k)).map((k) => ({
+          agent: k,
+          content: doneAgents.find((r) => r.agentKey === k)!.content!,
+        })),
+        missing
+      ),
+      label: 'sintese',
+      maxTokens: DEPTH_CONFIG[depth].synthesisTokens,
+      temperature: 0.4,
+    });
+    await safe(() => store.update(id, { synthesis, synthesisStatus: 'done' }));
+  } catch (error) {
+    await safe(() =>
+      store.update(id, { synthesisStatus: 'failed', error: `A síntese falhou: ${describeError(error)}` })
+    );
   }
 }
 
-/**
- * Reexecuta o Pesquisador (se o dossiê não existir) e/ou os especialistas
- * indicados (por padrão, todos com status 'failed').
- */
-export async function retryAnalysis(
-  analysisId: string,
-  agentKeys?: AgentKey[]
-): Promise<{ ok: boolean; message: string }> {
-  const analysis = await db.analysis.findUnique({
-    where: { id: analysisId },
-    include: { results: true },
-  });
-  if (!analysis) return { ok: false, message: 'Análise não encontrada.' };
+/* ───────────────────────── Execução ───────────────────────── */
 
-  let dossier = analysis.research;
-  const zai = await ZAI.create();
+export interface RunPlan {
+  research: boolean;
+  agents: AgentKey[];
+  synthesis: boolean;
+}
+
+async function execute(id: string, plan: RunPlan, llm: LLM): Promise<void> {
+  const store = await getStore();
   const startedAt = Date.now();
+  try {
+    const row = await store.get(id);
+    if (!row) return;
 
-  // Reexecuta a pesquisa se não há dossiê
-  if (!dossier) {
-    await db.analysis.update({
-      where: { id: analysisId },
-      data: { status: 'researching', researchStatus: 'running', error: null },
-    });
-    try {
-      dossier = await runResearcher(zai, analysis.title);
-      await db.analysis.update({
-        where: { id: analysisId },
-        data: { research: dossier, researchStatus: 'done', status: 'analyzing' },
-      });
-    } catch (error) {
-      await db.analysis.update({
-        where: { id: analysisId },
-        data: {
-          status: 'failed',
-          researchStatus: 'failed',
-          error: error instanceof Error ? error.message : 'Falha na pesquisa.',
-        },
-      });
-      return { ok: false, message: 'A pesquisa falhou novamente. Tente mais tarde.' };
+    const ctx: RunContext = {
+      store,
+      llm,
+      id,
+      title: row.title,
+      hint: row.hint,
+      kind: row.kind as WorkKind,
+      depth: row.depth as Depth,
+    };
+
+    // Fase 1 — Pesquisador (falha aqui aborta a análise)
+    let dossier = row.research;
+    if (plan.research || !dossier) {
+      try {
+        dossier = await runResearch(ctx);
+      } catch (error) {
+        await safe(() =>
+          store.update(id, {
+            status: 'failed',
+            researchStatus: 'failed',
+            error: `A pesquisa falhou: ${describeError(error)}`,
+            durationMs: (row.durationMs ?? 0) + (Date.now() - startedAt),
+          })
+        );
+        return;
+      }
     }
-  }
 
-  // Seleciona especialistas: os pedidos, ou todos que falharam
-  const targets = agentKeys?.length
-    ? agentKeys
-    : analysis.results.filter((r) => r.status === 'failed').map((r) => r.agentKey as AgentKey);
-  const validTargets = targets.filter((k) => AGENT_KEYS.includes(k));
-  if (validTargets.length === 0) {
-    return { ok: false, message: 'Nenhum agente para reexecutar.' };
-  }
+    // Fase 2 — Especialistas (concorrência limitada de forma global)
+    if (plan.agents.length > 0) {
+      await store.update(id, { status: 'analyzing', error: null });
+      await Promise.all(plan.agents.map((key) => runSpecialist(ctx, key, dossier!)));
+    }
+    if (cancelled().has(id)) return;
 
-  await db.analysis.update({
-    where: { id: analysisId },
-    data: { status: 'analyzing', error: null },
-  });
+    // Fase 3 — Síntese
+    const afterSpecialists = await store.get(id);
+    if (!afterSpecialists) return;
+    const doneCount = afterSpecialists.results.filter((r) => r.status === 'done').length;
 
-  void Promise.all(
-    validTargets.map((key, i) =>
-      sleep(i * AGENT_STAGGER_MS).then(() =>
-        runSpecialist(zai, analysisId, key, analysis.title, dossier!)
-      )
-    )
-  ).then(async () => {
-    await db.analysis
-      .update({
-        where: { id: analysisId },
-        data: { status: 'completed', durationMs: Date.now() - startedAt },
+    if (doneCount === 0) {
+      const firstError = afterSpecialists.results.find((r) => r.error)?.error;
+      await safe(() =>
+        store.update(id, {
+          status: 'failed',
+          error: `Nenhum especialista concluiu a análise.${firstError ? ` Motivo: ${firstError}` : ''}`,
+          durationMs: (row.durationMs ?? 0) + (Date.now() - startedAt),
+        })
+      );
+      return;
+    }
+
+    if (plan.synthesis) await runSynthesis(ctx, dossier!, afterSpecialists);
+
+    // Mantém um erro de síntese visível, mas encerra a análise como concluída (resultado parcial é válido)
+    await safe(() =>
+      store.update(id, { status: 'completed', durationMs: (row.durationMs ?? 0) + (Date.now() - startedAt) })
+    );
+  } catch (error) {
+    await safe(async () =>
+      store.update(id, {
+        status: 'failed',
+        error: describeError(error),
+        durationMs: Date.now() - startedAt,
       })
-      .catch(() => undefined);
-  });
+    );
+  }
+}
 
-  return { ok: true, message: `Reexecutando ${validTargets.length} agente(s).` };
+/** Registra e dispara a execução em background. O registro é síncrono, evitando corrida com `reapOrphans`. */
+function launch(id: string, plan: RunPlan): void {
+  const llm = createLLM();
+  const promise = execute(id, plan, llm)
+    .catch((error) => console.error('[anima] execução abortada:', error))
+    .finally(() => {
+      runs().delete(id);
+      cancelled().delete(id);
+    });
+  runs().set(id, promise);
+}
+
+/* ───────────────────────── API pública ───────────────────────── */
+
+export interface StartInput {
+  title: string;
+  hint: string | null;
+  kind: WorkKind;
+  depth: Depth;
+}
+
+export async function startAnalysis(input: StartInput): Promise<AnalysisRow> {
+  const store = await getStore();
+  const row = await store.create({ ...input, agentKeys: AGENT_KEYS, model: createLLM().model });
+  launch(row.id, { research: true, agents: [...AGENT_KEYS], synthesis: true });
+  return row;
+}
+
+export interface RetryOptions {
+  agentKeys?: AgentKey[];
+  research?: boolean;
+  synthesis?: boolean;
+}
+
+export type RetryResult =
+  | { ok: true; message: string }
+  | { ok: false; code: 'not_found' | 'busy' | 'nothing'; message: string };
+
+export async function retryAnalysis(id: string, opts: RetryOptions = {}): Promise<RetryResult> {
+  const store = await getStore();
+  const row = await store.get(id);
+  if (!row) return { ok: false, code: 'not_found', message: 'Análise não encontrada.' };
+  if (isRunActive(id)) return { ok: false, code: 'busy', message: 'Esta análise já está em andamento.' };
+
+  const research = Boolean(opts.research) || !row.research;
+  const explicit = opts.agentKeys?.length ? opts.agentKeys.filter(isAgentKey) : null;
+  const agents: AgentKey[] = explicit
+    ? [...new Set(explicit)]
+    : AGENT_KEYS.filter((k) => {
+        const r = row.results.find((x) => x.agentKey === k);
+        // 'running' sem execução ativa = interrompido; ausentes (análises antigas) só entram se pedidos explicitamente
+        return r !== undefined && ['failed', 'pending', 'running'].includes(r.status);
+      });
+
+  const synthesis = opts.synthesis ?? (agents.length > 0 || research || row.synthesisStatus !== 'done');
+
+  if (!research && agents.length === 0 && !synthesis) {
+    return { ok: false, code: 'nothing', message: 'Nada para reexecutar.' };
+  }
+
+  if (activeRunCount() >= maxActiveRuns()) {
+    return { ok: false, code: 'busy', message: `Já existem ${activeRunCount()} análises em andamento. Aguarde uma concluir.` };
+  }
+
+  // Estado "na fila" imediato para a UI refletir o pedido
+  await store.update(id, {
+    status: research ? 'researching' : agents.length > 0 ? 'analyzing' : 'synthesizing',
+    error: null,
+    ...(research ? { researchStatus: 'running' as const } : {}),
+    ...(synthesis ? { synthesisStatus: 'pending' as const } : {}),
+  });
+  for (const key of agents) {
+    await store.updateAgent(id, key, { status: 'pending', content: null, error: null, durationMs: null });
+  }
+
+  launch(id, { research, agents, synthesis });
+  const parts = [
+    research ? 'pesquisa' : null,
+    agents.length ? `${agents.length} especialista(s)` : null,
+    synthesis ? 'síntese' : null,
+  ].filter(Boolean);
+  return { ok: true, message: `Reexecutando: ${parts.join(', ')}.` };
+}
+
+/** Exclui a análise e cancela escritas pendentes da execução em curso. */
+export async function deleteAnalysis(id: string): Promise<boolean> {
+  const store = await getStore();
+  if (isRunActive(id)) cancelled().add(id);
+  return store.delete(id);
+}
+
+/**
+ * Marca como `interrupted` as análises ativas no banco sem execução correspondente neste processo
+ * (ex.: servidor reiniciado no meio do pipeline). Podem ser retomadas por `retryAnalysis`.
+ */
+export async function reapOrphans(): Promise<number> {
+  const store = await getStore();
+  const active = await store.listActive();
+  let reaped = 0;
+  for (const { id, updatedAt } of active) {
+    if (isRunActive(id) || Date.now() - updatedAt.getTime() < ORPHAN_GRACE_MS) continue;
+    const row = await store.get(id);
+    if (!row) continue;
+    for (const r of row.results) {
+      if (r.status === 'running') {
+        await store.updateAgent(id, r.agentKey as AgentKey, {
+          status: 'failed',
+          error: 'Execução interrompida (o servidor foi reiniciado).',
+        });
+      }
+    }
+    await store.update(id, {
+      status: 'interrupted',
+      ...(row.researchStatus === 'running' ? { researchStatus: 'failed' as const } : {}),
+      ...(row.synthesisStatus === 'running' ? { synthesisStatus: 'failed' as const } : {}),
+      error: 'A análise foi interrompida antes de terminar. Você pode retomá-la.',
+    });
+    reaped++;
+  }
+  return reaped;
 }
