@@ -205,6 +205,20 @@ export interface UsageDTO {
   notices: string[];
 }
 
+/**
+ * Pergunta de acompanhamento: uma pergunta do usuário respondida **com o material já gerado** (dossiê e
+ * lentes), sem nova rodada de pesquisa. Fica guardada na análise para sobreviver a recarregar a página.
+ */
+export interface FollowUpDTO {
+  id: string;
+  question: string;
+  answer: string;
+  /** Modelo que respondeu (pode diferir do modelo da análise, se houve fallback). */
+  model: string | null;
+  createdAt: string;
+  durationMs: number | null;
+}
+
 export interface AnalysisDTO {
   id: string;
   title: string;
@@ -231,6 +245,8 @@ export interface AnalysisDTO {
   progress: number;
   /** Posição na fila (1 = próxima); null quando não está na fila */
   queuePosition: number | null;
+  /** Perguntas de acompanhamento já respondidas (mais antigas primeiro). */
+  followUps: FollowUpDTO[];
 }
 
 export interface AnalysisSummaryDTO {

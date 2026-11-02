@@ -91,6 +91,15 @@ export function validateUserSources(
   return { ok: true, sources: out };
 }
 
+/** Pergunta de acompanhamento: curta, sem quebras de linha, sem aspas que delimitam o prompt. */
+export const followUpSchema = z.object({
+  question: z
+    .string({ error: 'Escreva uma pergunta.' })
+    .transform(cleanText)
+    .refine((v) => v.length >= 3, { message: 'A pergunta precisa de pelo menos 3 caracteres.' })
+    .refine((v) => v.length <= 500, { message: 'A pergunta é longa demais (máximo 500 caracteres).' }),
+});
+
 export const retrySchema = z.object({
   agentKeys: z.array(z.enum(AGENT_KEYS)).max(AGENT_KEYS.length).optional(),
   research: z.boolean().optional(),

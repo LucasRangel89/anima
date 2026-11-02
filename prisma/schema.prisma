@@ -34,6 +34,7 @@ model Analysis {
   durationMs      Int?
   model           String? // modelo de LLM usado (rastreabilidade)
   usage           String? // JSON: chamadas, tokens e avisos de contexto reduzido
+  followUps       String? // JSON: perguntas de acompanhamento respondidas sobre o relatório
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   results         AgentResult[]

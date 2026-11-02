@@ -48,7 +48,7 @@ O formulário avisa na própria página quando o LLM não está configurado ou q
 
 ### Atualizando de uma versão anterior
 
-O schema é **aditivo** desde a v0.2 (`focus`, `userSources`, `synthesis`…). Rode `npm run db:push` com o mesmo `DATABASE_URL` e nada é perdido. Análises antigas continuam abrindo; lentes que não existiam aparecem como “não geradas” e podem ser executadas sob demanda — o botão **“Gerar as N que faltam”** aparece no relatório.
+O schema é **aditivo** desde a v0.2 (`focus`, `userSources`, `synthesis`, `followUps`…). Rode `npm run db:push` com o mesmo `DATABASE_URL` e nada é perdido. Análises antigas continuam abrindo; lentes que não existiam aparecem como “não geradas” e podem ser executadas sob demanda — o botão **“Gerar as N que faltam”** aparece no relatório.
 
 ---
 
@@ -129,6 +129,21 @@ A profundidade também define o teto de tokens de cada etapa (dossiê, especiali
 - **As lentes escolhidas** — Markdown com subtítulos específicos da obra e a seção obrigatória `### Limites e verificações` (confiança, o que checar, lente não explorada).
 - **Fontes** — lista com tipo, autoria, ano, confiabilidade e nota (ex.: “42 citações”).
 - **Exportação** — `.md`, cópia para a área de transferência, impressão/PDF e **cofre para o Obsidian**.
+- **Perguntas de acompanhamento** — ao fim do relatório, perguntas respondidas com o dossiê e as lentes já geradas (uma chamada ao modelo, sem nova pesquisa). As respostas ficam salvas na análise.
+
+### Perguntas de acompanhamento
+
+Depois de ler, a pergunta natural é “e daí?”. A caixa ao fim do relatório responde com o **material já pago** —
+dossiê e lentes desta análise — em uma única chamada ao modelo, sem nova pesquisa e sem refazer o pipeline.
+
+- As **sugestões** dependem do que a análise realmente tem: sem a lente Crítica, não aparece “qual é a objeção
+  mais forte”.
+- O prompt proíbe inventar títulos, datas e citações; o que vem de fora do material leva **†**, como no resto
+  do relatório.
+- Se a pergunta pede algo fora do recorte, a resposta diz o que falta e qual recorte resolveria.
+- As respostas são **salvas na análise** (`followUps`, JSON): sobrevivem a recarregar, podem ser removidas e
+  têm teto de 30 por análise para não virarem um chat infinito.
+- Custo: uma chamada por pergunta, registrada no mesmo lugar que as demais.
 
 ### Exportar para o Obsidian
 
@@ -278,7 +293,7 @@ O `.env.example` traz blocos prontos para **Gemini** (endpoint OpenAI-compatíve
 ## Qualidade
 
 ```bash
-npm test          # 137 testes (node:test)
+npm test          # 154 testes (node:test)
 npm run typecheck # tsc --noEmit
 npm run lint      # eslint
 npm run check     # os três em sequência

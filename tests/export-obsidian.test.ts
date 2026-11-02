@@ -59,6 +59,7 @@ function dto(overrides: Partial<AnalysisDTO> = {}): AnalysisDTO {
     })),
     progress: 100,
     queuePosition: null,
+    followUps: [],
     ...overrides,
   };
 }

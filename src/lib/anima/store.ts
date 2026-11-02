@@ -33,6 +33,8 @@ export interface AnalysisRow {
   model: string | null;
   /** JSON de AnalysisUsage: chamadas, tokens e avisos de contexto desta análise. */
   usage: string | null;
+  /** JSON de FollowUpDTO[]: perguntas de acompanhamento e respostas. */
+  followUps: string | null;
   createdAt: Date;
   updatedAt: Date;
   results: AgentResultRow[];
@@ -78,6 +80,7 @@ export interface AnalysisPatch {
   durationMs?: number | null;
   model?: string | null;
   usage?: string | null;
+  followUps?: string | null;
 }
 
 export interface AgentPatch {
