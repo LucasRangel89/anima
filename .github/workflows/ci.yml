@@ -59,6 +59,8 @@ jobs:
         env:
           DATABASE_URL: file:./ci.db
           LLM_PROVIDER: mock
+          # Aqui há banco de verdade: pular o contrato do Prisma seria falso verde.
+          ANIMA_REQUIRE_PRISMA_TESTS: '1'
 
       - name: Auditoria de UI (contraste e estrutura)
         run: |
@@ -84,3 +86,5 @@ jobs:
         env:
           DATABASE_URL: file:./ci.db
           LLM_PROVIDER: mock
+          # Aqui há banco de verdade: pular o contrato do Prisma seria falso verde.
+          ANIMA_REQUIRE_PRISMA_TESTS: '1'

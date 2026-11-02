@@ -269,7 +269,13 @@ test('contrato de persistência (memória + Prisma quando disponível)', async (
 
   assert.ok(exercised.includes('memória'), 'a implementação de memória precisa ser exercitada');
   t.diagnostic(`implementações exercitadas: ${exercised.join(', ')}`);
+
   if (!exercised.includes('prisma')) {
+    // Em CI (onde há banco e client gerados) pular o Prisma seria um falso verde: a suíte inteira
+    // passaria sem nunca tocar o banco de produção. Aí o pulo vira falha.
+    if (process.env.ANIMA_REQUIRE_PRISMA_TESTS === '1') {
+      assert.fail('ANIMA_REQUIRE_PRISMA_TESTS=1, mas o contrato do Prisma foi pulado — veja o motivo acima.');
+    }
     t.diagnostic('PRISMA NÃO EXERCITADO — rode `npm test` com DATABASE_URL e o client gerado para validar o banco.');
   }
 });
