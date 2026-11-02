@@ -90,6 +90,38 @@ export interface AgentPatch {
   durationMs?: number | null;
 }
 
+/** Comparação entre duas análises, persistida como registro próprio. */
+export interface ComparisonRow {
+  id: string;
+  leftId: string;
+  rightId: string;
+  /** Títulos gravados no momento da criação: a comparação não quebra se a análise sumir. */
+  leftTitle: string;
+  rightTitle: string;
+  status: 'running' | 'completed' | 'failed';
+  content: string | null;
+  error: string | null;
+  model: string | null;
+  durationMs: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateComparisonInput {
+  leftId: string;
+  rightId: string;
+  leftTitle: string;
+  rightTitle: string;
+}
+
+export interface ComparisonPatch {
+  status?: ComparisonRow['status'];
+  content?: string | null;
+  error?: string | null;
+  model?: string | null;
+  durationMs?: number | null;
+}
+
 export type StatusFilter = 'all' | 'active' | 'completed' | 'failed' | 'interrupted';
 
 export interface ListOptions {
@@ -108,6 +140,13 @@ export interface AnalysisStore {
   /** Cria a linha do agente se ainda não existir (análises antigas). */
   updateAgent(id: string, agentKey: AgentKey, patch: AgentPatch): Promise<void>;
   delete(id: string): Promise<boolean>;
+
+  /* ── Comparações ── */
+  createComparison(input: CreateComparisonInput): Promise<ComparisonRow>;
+  getComparison(id: string): Promise<ComparisonRow | null>;
+  listComparisons(limit: number): Promise<ComparisonRow[]>;
+  updateComparison(id: string, patch: ComparisonPatch): Promise<void>;
+  deleteComparison(id: string): Promise<boolean>;
   /** Análise concluída equivalente, para reaproveitar sem novo custo de API. */
   findLatestCompleted(
     title: string,

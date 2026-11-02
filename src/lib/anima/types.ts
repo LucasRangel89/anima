@@ -249,6 +249,19 @@ export interface AnalysisDTO {
   followUps: FollowUpDTO[];
 }
 
+/** Comparação entre duas análises concluídas (registro próprio, com histórico). */
+export interface ComparisonDTO {
+  id: string;
+  status: 'running' | 'completed' | 'failed';
+  left: { id: string; title: string };
+  right: { id: string; title: string };
+  content: string | null;
+  error: string | null;
+  model: string | null;
+  durationMs: number | null;
+  createdAt: string;
+}
+
 export interface AnalysisSummaryDTO {
   id: string;
   title: string;

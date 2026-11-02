@@ -91,6 +91,50 @@ const input = (title: string, extra: Partial<Parameters<AnalysisStore['create']>
 
 const CASES: Case[] = [
   {
+    name: 'comparações: criar, listar, atualizar e remover',
+    run: async (store) => {
+      const left = await store.create(input('Contrato — comparação A'));
+      const right = await store.create(input('Contrato — comparação B'));
+      let comparisonId = '';
+      try {
+        const created = await store.createComparison({
+          leftId: left.id,
+          rightId: right.id,
+          leftTitle: left.title,
+          rightTitle: right.title,
+        });
+        comparisonId = created.id;
+        assert.equal(created.status, 'running');
+        assert.equal(created.leftTitle, 'Contrato — comparação A');
+        assert.ok(created.createdAt instanceof Date);
+
+        await store.updateComparison(created.id, {
+          status: 'completed',
+          content: '## Veredito\n\nEmpate.',
+          model: 'mock',
+          durationMs: 12,
+        });
+
+        const fetched = await store.getComparison(created.id);
+        assert.equal(fetched?.status, 'completed');
+        assert.match(fetched?.content ?? '', /Veredito/);
+        assert.equal(fetched?.durationMs, 12);
+
+        const listed = await store.listComparisons(10);
+        assert.ok(listed.some((row) => row.id === created.id));
+
+        assert.equal(await store.deleteComparison(created.id), true);
+        assert.equal(await store.getComparison(created.id), null);
+        assert.equal(await store.deleteComparison(created.id), false);
+      } finally {
+        if (comparisonId) await store.deleteComparison(comparisonId).catch(() => undefined);
+        await store.delete(left.id);
+        await store.delete(right.id);
+      }
+    },
+  },
+
+  {
     name: 'create + get trazem as lentes na ordem canônica',
     run: async (store, cleanup) => {
       const row = await store.create(input('Contrato — create'));
