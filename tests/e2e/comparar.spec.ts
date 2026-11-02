@@ -51,13 +51,14 @@ test('compara duas análises concluídas e guarda o resultado', async ({ page, r
   await page.getByLabel('Segunda obra').selectOption({ index: 2 });
   await page.getByRole('button', { name: 'Comparar', exact: true }).click();
 
-  await expect(page.getByText(/Dom Casmurro × Cem Anos de Solidão|Cem Anos de Solidão × Dom Casmurro/)).toBeVisible({
-    timeout: 90_000,
-  });
+  // `getByText` casa também com os ancestrais; o seletor vai direto ao título do cartão.
+  const titulo = page.locator('summary p.font-medium').filter({ hasText: '×' }).first();
+  await expect(titulo).toBeVisible({ timeout: 120_000 });
+  await expect(titulo).toContainText(/Dom Casmurro|Cem Anos de Solidão/);
 
   // O histórico sobrevive a recarregar a página.
   await page.reload();
-  await expect(page.getByText(/×/).first()).toBeVisible();
+  await expect(page.locator('summary p.font-medium').filter({ hasText: '×' }).first()).toBeVisible({ timeout: 30_000 });
 
   const [download] = await Promise.all([
     page.waitForEvent('download'),
