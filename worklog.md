@@ -73,3 +73,34 @@ Diário de construção: o que foi feito, o que foi verificado e por que certas 
 - Verificação end-to-end com análise visual (home desktop/mobile/dark, monitoramento, relatório, scrollspy, copiar, rodapé fixo), zero erros de console.
 - `python-reference/` com a implementação de referência do blueprint (LangChain + asyncio + Streamlit), sintaxe validada.
 - Próximos passos sugeridos na época: debate entre agentes, comparação entre obras, autenticação, exportação PDF — parcialmente absorvidos nas versões seguintes.
+
+## Fase 0 — verificação real (2026-11-02)
+
+Ambiente de verificação: container Linux sem navegador, sem `apt`/root e com saída de rede limitada ao
+registro npm. Isso define o que pôde ser comprovado e o que ficou para a máquina do usuário.
+
+**Comprovado por execução**
+
+- `npm ci` (538 pacotes), `tsc --noEmit` (0 erros, incluindo `store-prisma.ts`) e `next build` (10 rotas).
+- Pipeline completo com `LLM_PROVIDER=mock` + `ANIMA_STORE=memory`: livro e filme, 8/8 lentes, dossiê e síntese,
+  progresso 100, console do servidor sem erros de aplicação.
+- Fila real: `ANIMA_MAX_ACTIVE=2` → terceira análise `queued` com `queuePosition: 1`, cancelamento da fila
+  (`interrupted` + mensagem de retomada), `409` ao cancelar o que já terminou, `400` ao reexecutar o que não
+  precisa, `503` sem chave configurada.
+- Aviso de primeira execução passa a ser renderizado no servidor (`getSystemStatus()` em `page.tsx`),
+  e não mais apenas depois da hidratação.
+- Contraste WCAG dos dez pares de cor do tema em claro e escuro (menor razão: 4,59:1 — AA) e estrutura das
+  rotas `/` e `/metodo` (um `<h1>`, hierarquia sem saltos, landmarks, rótulos).
+
+**Não verificável neste ambiente** (exige rede aberta, engines do Prisma ou navegador)
+
+- `prisma generate`/`db push` com engines reais; execução do `store-prisma.ts` contra SQLite de verdade.
+  Contorno usado: `prisma generate --no-engine` apenas para checar tipos. Por isso o teste de contrato do
+  store é **pulado com motivo** quando não há banco.
+- Chamada real a um LLM (Gemini/Groq/OpenRouter/Ollama) e busca real (Wikipédia/Open Library/OpenAlex).
+  O caminho foi coberto de outro jeito: `tests/llm-http.test.ts` contra um servidor OpenAI-compatível local e
+  `tests/search-network.test.ts` com respostas gravadas dos provedores.
+- Interface renderizada em 1280px/390px, claro/escuro. Chromium foi baixado (`@sparticuz/chromium`), mas não
+  executa sem `libnspr4`/`libnss3` e não há root para instalá-las. O que deu para checar sem navegador está em
+  `npm run audit:ui`.
+- Tipografia real: `next/font/google` não baixa Fraunces/Inter aqui; o preview cai em fontes de sistema.

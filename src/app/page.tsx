@@ -4,6 +4,7 @@ import { HistoryList } from '@/components/anima/history-list';
 import { NewAnalysisForm } from '@/components/anima/new-analysis-form';
 import { SetupBanner } from '@/components/anima/setup-banner';
 import { asDepth, asWorkKind, isAgentKey, type AgentKey } from '@/lib/anima/types';
+import { getSystemStatus } from '@/lib/anima/status';
 import Link from 'next/link';
 
 const STEPS = [
@@ -50,8 +51,15 @@ function readInitial(search: Record<string, string | string[] | undefined>) {
   };
 }
 
+// A fila e a configuração mudam a cada execução: a página não pode ser prerenderizada com
+// um estado congelado do momento do build.
+export const dynamic = 'force-dynamic';
+
 export default async function HomePage({ searchParams }: { searchParams: SearchParams }) {
   const initial = readInitial(await searchParams);
+  // Calculado no servidor para que o aviso de configuração apareça já no primeiro paint,
+  // mesmo sem JavaScript — é a única orientação de quem abre o app sem chave.
+  const status = getSystemStatus();
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6">
       <section className="mx-auto max-w-3xl pb-6 pt-12 text-center sm:pt-16">
@@ -63,7 +71,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
           em teoria nomeada, em fontes verificáveis e nos próprios limites.
         </p>
         <div className="mt-8">
-          <SetupBanner />
+          <SetupBanner initialStatus={status} />
           <NewAnalysisForm initial={initial} />
         </div>
         <p className="mt-6 text-sm text-muted-foreground">
