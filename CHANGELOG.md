@@ -8,6 +8,7 @@ Foco: **qualidade mensurável (Fase 2) e uso pessoal (Fase 3)**.
 
 ### Adicionado
 
+- **Avaliação de qualidade** (`npm run eval`, `src/lib/anima/eval.ts`): cinco obras de referência rodadas num modelo real, com contagem de palavras por lente, checagem da seção "Limites e verificações", contagem de † e conferência de cada referência `Autor, *Obra*, ano` / `Autor (ano)` contra Open Library e Crossref. Relatório em `eval-report.md`; nada reprova automaticamente, e base fora do ar é "não verificada" (nunca "confirmada").
 - **Limites de uso** (`ANIMA_RATE_LIMIT_ANALYSES`, `ANIMA_RATE_LIMIT_EXTRA`, `ANIMA_RATE_LIMIT=off`): janela deslizante em memória que responde `429` com `Retry-After` em análises, perguntas e comparações. Defaults: 20 e 120 por hora, por processo.
 - **e2e com Playwright** (`npm run e2e`, job próprio no CI): formulário → relatório → pergunta → cofre Obsidian; tema; `/comparar` com geração, recarga, download e remoção. Provedor mock e store em memória.
 - **`docs/PROPOSTA-SQLITE.md`**: proposta (não execução) de trocar Prisma por SQLite direto, com custo, risco e critérios para decidir.

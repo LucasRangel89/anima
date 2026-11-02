@@ -1,129 +1,113 @@
-// ANIMA — `npm run eval`
+// ANIMA — `npm run eval`: avaliação de qualidade com um modelo de verdade.
 //
-// Roda as cinco obras de referência contra um modelo REAL e escreve um relatório de qualidade.
-// Fica fora do `npm test` de propósito: é lento, custa chamadas e o mock não serve para medir prosa.
-//
-// Uso:
-//   npm run eval                      # todas as obras
-//   npm run eval -- --only=dom-casmurro
-//   npm run eval -- --mock            # ensaio: valida o encanamento sem gastar nada (resultado não vale)
-//
-// Saída: eval/relatorio.md e eval/relatorio.json
+// Fora do `npm test` de propósito: faz chamadas reais, gasta cota e depende de um provedor configurado.
+// Com `--offline`, pula a conferência de referências (Open Library/Crossref).
+// Com `--mock`, roda o encanamento inteiro sem custo — o relatório sai marcado como ensaio.
 
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+import { writeFileSync } from 'node:fs';
 
-import { GOLDEN_WORKS, evaluateWork, renderEvalReport, verifyReferences } from '../src/lib/anima/eval';
-import type { AnalysisDTO } from '../src/lib/anima/types';
+const ROOT = resolve(import.meta.dirname, '..');
+try {
+  process.loadEnvFile(resolve(ROOT, '.env'));
+} catch {
+  /* sem .env: usa o ambiente atual */
+}
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = join(ROOT, 'eval');
+// Sem banco durante a avaliação: o resultado é lido na hora e não precisa sobreviver.
+process.env.ANIMA_STORE = 'memory';
 
-const args = process.argv.slice(2);
-const only = args.find((a) => a.startsWith('--only='))?.split('=')[1];
-const allowMock = args.includes('--mock');
-const offline = args.includes('--offline'); // pula a verificação de referências
+const args = new Set(process.argv.slice(2));
+const offline = args.has('--offline');
+const allowMock = args.has('--mock');
 
 async function main() {
-  // Em avaliação o banco não interessa: as análises são lidas na hora e não precisam sobreviver.
-  process.env.ANIMA_STORE ??= 'memory';
-  // `--mock` não é só "deixa passar": é o provedor fictício de fato, para testar o encanamento.
-  if (allowMock) process.env.LLM_PROVIDER = 'mock';
-
-  const { startAnalysis, waitForRun } = await import('../src/lib/anima/orchestrator');
+  const { GOLDEN_WORKS, evaluateAnalysis, renderEvalReport, verifyReferences } = await import('../src/lib/anima/eval');
+  const { startAnalysis } = await import('../src/lib/anima/orchestrator');
   const { getStore } = await import('../src/lib/anima/store-index');
   const { toAnalysisDTO } = await import('../src/lib/anima/dto');
-  const { createLLM } = await import('../src/lib/anima/llm');
+  const { getSystemStatus } = await import('../src/lib/anima/status');
 
-  const llm = createLLM();
-  if (llm.provider === 'mock' && !allowMock) {
+  const status = getSystemStatus();
+  if (!status.configured) {
+    console.error(`\nO modelo não está configurado: ${status.message ?? 'defina LLM_API_KEY no .env'}\n`);
+    process.exit(1);
+  }
+  if (status.provider === 'mock' && !allowMock) {
     console.error(
-      [
-        '',
-        'O provedor está em modo demonstração (mock): as respostas são fictícias e não medem nada.',
-        'Configure LLM_PROVIDER/LLM_API_KEY no .env, ou rode `npm run eval -- --mock` só para testar o encanamento.',
-        '',
-      ].join('\n')
+      '\nO provedor está em modo demonstração — o relatório não mediria nada.\n' +
+        'Configure LLM_PROVIDER/LLM_API_KEY no .env, ou rode `npm run eval -- --mock` só para testar o encanamento.\n'
     );
-    process.exit(2);
+    process.exit(1);
   }
 
-  if (llm.provider === 'mock') {
-    console.warn('\n[ensaio] Usando mock: o relatório NÃO vale como avaliação de qualidade.\n');
-  }
+  const model = status.model ?? process.env.LLM_MODEL ?? 'modelo não informado';
+  console.log(`\nAvaliação ANIMA — ${GOLDEN_WORKS.length} obras · modelo ${model}${offline ? ' · sem conferir referências' : ''}\n`);
 
   const store = await getStore();
-  const works = only ? GOLDEN_WORKS.filter((w) => w.id === only) : GOLDEN_WORKS;
-  if (works.length === 0) {
-    console.error(`Obra desconhecida: ${only}. Disponíveis: ${GOLDEN_WORKS.map((w) => w.id).join(', ')}`);
-    process.exit(2);
-  }
-
   const evaluations = [];
+  const verified = new Map<string, Awaited<ReturnType<typeof verifyReferences>>>();
 
-  for (const [index, work] of works.entries()) {
-    const label = `[${index + 1}/${works.length}] ${work.title}`;
+  for (const [index, work] of GOLDEN_WORKS.entries()) {
+    const label = `[${index + 1}/${GOLDEN_WORKS.length}] ${work.title}`;
     process.stdout.write(`${label} … `);
-    const started = Date.now();
 
-    const { row } = await startAnalysis({
+    const started = await startAnalysis({
       title: work.title,
       hint: work.hint,
-      focus: null,
+      focus: work.focus,
       kind: work.kind,
       depth: work.depth,
     });
-    await waitForRun(row.id);
 
-    const stored = await store.get(row.id);
-    if (!stored) {
-      console.log('falhou (análise não encontrada)');
+    // Espera o pipeline terminar. O teto é generoso: exaustiva em provedor gratuito pode levar minutos.
+    const deadline = Date.now() + 15 * 60_000;
+    let row = await store.get(started.row.id);
+    while (row && !['completed', 'failed', 'interrupted'].includes(row.status) && Date.now() < deadline) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 1_500));
+      row = await store.get(started.row.id);
+    }
+
+    if (!row) {
+      console.log('análise sumiu do store');
       continue;
     }
-    const dto = toAnalysisDTO(stored) as AnalysisDTO;
-    const evaluation = evaluateWork(work, dto);
+
+    const analysis = toAnalysisDTO(row);
+    const evaluation = evaluateAnalysis(work, analysis);
+    evaluations.push(evaluation);
 
     if (!offline) {
-      const text = [
-        dto.research ?? '',
-        ...dto.results.map((r) => r.content ?? ''),
-        dto.synthesis ?? '',
-      ].join('\n');
-      evaluation.references = await verifyReferences(text);
-      evaluation.score.refsConfirmed = evaluation.references.filter((r) => r.status === 'confirmada').length;
-      evaluation.score.refsDoubtful = evaluation.references.filter((r) => r.status === 'duvidosa').length;
-      evaluation.score.refsUnverified = evaluation.references.filter((r) => r.status === 'nao_verificada').length;
+      verified.set(work.id, await verifyReferences(evaluation.references));
     }
 
-    const seconds = ((Date.now() - started) / 1000).toFixed(1);
+    const confirmed = (verified.get(work.id) ?? []).filter((r) => r.verdict === 'confirmada').length;
     console.log(
-      `${evaluation.status} em ${seconds}s · seções na faixa ${evaluation.score.sectionsInRange}/${evaluation.score.sectionsTotal}` +
-        (evaluation.score.withLimits < evaluation.score.sectionsTotal ? ` · sem "Limites" em ${evaluation.score.sectionsTotal - evaluation.score.withLimits}` : '')
+      `${row.status} · ${evaluation.totals.withinRange}/${evaluation.totals.lenses} na faixa · ` +
+        `${evaluation.totals.withLimits}/${evaluation.totals.lenses} com limites` +
+        (offline ? '' : ` · ${confirmed}/${evaluation.references.length} referências confirmadas`)
     );
-    evaluations.push(evaluation);
   }
 
-  const report = renderEvalReport(evaluations, {
-    model: llm.provider === 'mock' ? `mock (ensaio — não vale como avaliação de qualidade)` : llm.model,
+  const report = renderEvalReport(evaluations, verified, {
+    model,
     date: new Date().toLocaleString('pt-BR'),
+    offline,
   });
 
-  await mkdir(OUT, { recursive: true });
-  await writeFile(join(OUT, 'relatorio.md'), report, 'utf8');
-  await writeFile(join(OUT, 'relatorio.json'), JSON.stringify(evaluations, null, 2), 'utf8');
+  const out = resolve(ROOT, offline ? 'eval-report-offline.md' : 'eval-report.md');
+  writeFileSync(out, report, 'utf8');
+  writeFileSync(
+    resolve(ROOT, 'eval-report.json'),
+    JSON.stringify({ model, offline, date: new Date().toISOString(), evaluations, verified: Object.fromEntries(verified) }, null, 2),
+    'utf8'
+  );
 
-  console.log(`\nRelatório: ${join('eval', 'relatorio.md')}`);
-  const doubtful = evaluations.reduce((sum, e) => sum + e.score.refsDoubtful, 0);
-  const unverified = evaluations.reduce((sum, e) => sum + e.score.refsUnverified, 0);
-  if (doubtful || unverified) {
-    console.log(
-      `Referências: ${doubtful} duvidosa(s), ${unverified} não verificada(s) — veja a tabela antes de citar.`
-    );
-  }
+  console.log(`\nRelatório: ${out}`);
+  console.log('Referência confirmada = a obra existe com aquele autor e ano nas bases; não valida o que o texto afirma sobre ela.\n');
 }
 
 main().catch((error) => {
-  console.error('\nA avaliação falhou:', error);
+  console.error('\nA avaliação falhou:', error instanceof Error ? error.message : error);
   process.exit(1);
 });
