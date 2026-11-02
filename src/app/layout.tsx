@@ -8,11 +8,30 @@ import './globals.css';
 const fraunces = Fraunces({ variable: '--font-fraunces', subsets: ['latin'], display: 'swap' });
 const inter = Inter({ variable: '--font-inter', subsets: ['latin'], display: 'swap' });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: { default: 'ANIMA — Analisador Narrativo Inteligente Multiagente', template: '%s · ANIMA' },
   description:
-    'Um pesquisador, oito especialistas e um curador analisam estrutura, discurso, personagens, temas, estilo, psique, contexto e ideologia de qualquer obra narrativa.',
-  keywords: ['análise narrativa', 'narratologia', 'crítica literária', 'agentes de IA', 'ANIMA'],
+    'Um pesquisador, oito especialistas e um curador analisam estrutura, discurso, personagens, temas, estilo, psique, contexto e ideologia de qualquer obra narrativa, com fontes tipadas e recorte à sua escolha.',
+  keywords: [
+    'análise narrativa',
+    'narratologia',
+    'crítica literária',
+    'análise de filmes',
+    'agentes de IA',
+    'ANIMA',
+  ],
+  openGraph: {
+    type: 'website',
+    locale: 'pt_BR',
+    siteName: 'ANIMA',
+    title: 'ANIMA — Analisador Narrativo Inteligente Multiagente',
+    description:
+      'Uma obra, oito lentes, uma leitura integrada: pesquisa factual, especialistas independentes e síntese crítica.',
+  },
+  robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {

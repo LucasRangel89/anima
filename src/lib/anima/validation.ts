@@ -2,6 +2,7 @@
 
 import { z } from 'zod';
 import { AGENT_KEYS, DEPTHS, WORK_KINDS } from './types';
+import { isSafePublicUrl, normalizeUserSourceValue } from './user-sources';
 
 /** Normaliza texto livre: remove controles, colapsa espaços e troca aspas duplas (delimitam o prompt). */
 export function cleanText(value: string): string {
@@ -12,27 +13,94 @@ export function cleanText(value: string): string {
     .trim();
 }
 
+/** Recorte: texto curto, sem quebras de linha, usado como instrução adicional nos prompts. */
+const focusSchema = z
+  .string()
+  .max(240)
+  .optional()
+  .transform((v) => (v ? cleanText(v).slice(0, 200) : ''))
+  .transform((v) => v || null);
+
+/** Fontes enviadas pelo usuário: links (lidos pelo servidor) ou trechos colados. */
+export const userSourceSchema = z.object({
+  type: z.enum(['url', 'text']),
+  value: z.string().min(1).max(8000),
+});
+
+export const MAX_USER_SOURCES = 5;
+
 export const createAnalysisSchema = z.object({
   title: z
     .string({ error: 'Informe o título da obra.' })
     .transform(cleanText)
-    .pipe(z.string().min(2, 'O título precisa ter pelo menos 2 caracteres.').max(160, 'O título pode ter no máximo 160 caracteres.')),
+    .pipe(
+      z
+        .string()
+        .min(2, 'O título precisa ter pelo menos 2 caracteres.')
+        .max(160, 'O título pode ter no máximo 160 caracteres.')
+    ),
   hint: z
     .string()
     .max(200)
     .optional()
     .transform((v) => (v ? cleanText(v).slice(0, 120) : ''))
     .transform((v) => v || null),
+  focus: focusSchema,
   kind: z.enum(WORK_KINDS).default('auto'),
   depth: z.enum(DEPTHS).default('standard'),
+  /** Subconjunto de lentes; ausente/vazio = todas. */
+  agents: z
+    .array(z.enum(AGENT_KEYS))
+    .max(AGENT_KEYS.length)
+    .optional()
+    .transform((v) => (v && v.length > 0 ? [...new Set(v)] : AGENT_KEYS)),
+  /** Até 5 fontes extras fornecidas pelo usuário */
+  sources: z.array(userSourceSchema).max(MAX_USER_SOURCES).optional().default([]),
   /** true = ignora uma análise equivalente já concluída e gera uma nova */
   force: z.boolean().default(false),
 });
+
+export type CreateAnalysisPayload = z.infer<typeof createAnalysisSchema>;
+
+/**
+ * Valida e normaliza as fontes do usuário: URLs precisam ser públicas e http(s);
+ * textos viram trechos. Entradas inválidas são rejeitadas com mensagem clara.
+ */
+export function validateUserSources(
+  sources: Array<{ type: 'url' | 'text'; value: string }>
+): { ok: true; sources: Array<{ type: 'url' | 'text'; value: string }> } | { ok: false; error: string } {
+  const out: Array<{ type: 'url' | 'text'; value: string }> = [];
+  for (const source of sources) {
+    const value = normalizeUserSourceValue(source.value);
+    if (!value) continue;
+    if (source.type === 'url') {
+      if (!isSafePublicUrl(value)) {
+        return {
+          ok: false,
+          error: `Link inválido ou não permitido: ${value.slice(0, 80)}. Use endereços http(s) públicos.`,
+        };
+      }
+      out.push({ type: 'url', value });
+    } else {
+      if (value.length < 40) {
+        return { ok: false, error: 'Cada trecho colado precisa ter pelo menos 40 caracteres.' };
+      }
+      out.push({ type: 'text', value: value.slice(0, 6000) });
+    }
+  }
+  return { ok: true, sources: out };
+}
 
 export const retrySchema = z.object({
   agentKeys: z.array(z.enum(AGENT_KEYS)).max(AGENT_KEYS.length).optional(),
   research: z.boolean().optional(),
   synthesis: z.boolean().optional(),
+});
+
+export const listQuerySchema = z.object({
+  status: z.enum(['all', 'active', 'completed', 'failed', 'interrupted']).default('all'),
+  kind: z.enum(['all', ...WORK_KINDS]).default('all'),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
 });
 
 export function firstIssue(error: z.ZodError): string {

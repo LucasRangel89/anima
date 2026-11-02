@@ -2,12 +2,14 @@
 
 import { AGENTS, CURATOR_META } from './agent-meta';
 import { formatDate } from './format';
-import { DEPTH_LABELS, WORK_KIND_LABELS, type AnalysisDTO } from './types';
+import { DEPTH_LABELS, SOURCE_KIND_LABELS, WORK_KIND_LABELS, type AnalysisDTO } from './types';
 
 export function buildReportMarkdown(a: AnalysisDTO): string {
+  const lenses = a.results.filter((r) => r.status !== 'skipped').length;
   const meta = [
     WORK_KIND_LABELS[a.kind],
     `profundidade ${DEPTH_LABELS[a.depth].label.toLowerCase()}`,
+    `${lenses} lente(s)`,
     a.model && a.model !== 'mock' ? `modelo ${a.model}` : null,
     formatDate(a.createdAt),
   ].filter(Boolean);
@@ -16,6 +18,7 @@ export function buildReportMarkdown(a: AnalysisDTO): string {
     `# Relatório ANIMA — ${a.title}`,
     '',
     `> ${meta.join(' · ')}`,
+    ...(a.focus ? [`> **Recorte:** ${a.focus}`] : []),
     '> Conteúdo gerado por IA: confira fatos e referências marcados com † antes de citar.',
     '',
   ];
@@ -24,7 +27,22 @@ export function buildReportMarkdown(a: AnalysisDTO): string {
   parts.push('## Dossiê de pesquisa', '', a.research ?? '_(dossiê indisponível)_', '');
 
   if (a.sources.length > 0) {
-    parts.push('### Fontes consultadas', '', ...a.sources.map((s) => `- [${s.id}] [${s.title}](${s.url})`), '');
+    parts.push(
+      '### Fontes consultadas',
+      '',
+      ...a.sources.map((s) => {
+        const details = [
+          s.kind ? SOURCE_KIND_LABELS[s.kind] : null,
+          s.author,
+          s.year ? String(s.year) : null,
+          s.reliability ? `confiabilidade ${s.reliability}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        return `- [${s.id}] [${s.title}](${s.url})${details ? ` — ${details}` : ''}`;
+      }),
+      ''
+    );
   }
 
   for (const agent of AGENTS) {

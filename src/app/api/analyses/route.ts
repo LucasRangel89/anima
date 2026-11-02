@@ -2,10 +2,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { toAnalysisSummaryDTO } from '@/lib/anima/dto';
-import { getSystemStatus } from '@/lib/anima/llm';
-import { activeRunCount, maxActiveRuns, reapOrphans, startAnalysis } from '@/lib/anima/orchestrator';
+import {
+  activeRunCount,
+  maxActiveRuns,
+  maxQueuedRuns,
+  queueLength,
+  queuePosition,
+  reapOrphans,
+  startAnalysis,
+} from '@/lib/anima/orchestrator';
+import { getSystemStatus } from '@/lib/anima/status';
 import { getStore } from '@/lib/anima/store-index';
-import { createAnalysisSchema, firstIssue } from '@/lib/anima/validation';
+import { createAnalysisSchema, firstIssue, listQuerySchema, validateUserSources } from '@/lib/anima/validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,7 +24,10 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: firstIssue(parsed.error) }, { status: 400 });
     }
-    const { title, hint, kind, depth, force } = parsed.data;
+    const { title, hint, focus, kind, depth, agents, sources, force } = parsed.data;
+
+    const checked = validateUserSources(sources);
+    if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
 
     const status = getSystemStatus();
     if (!status.configured) {
@@ -27,34 +38,51 @@ export async function POST(req: NextRequest) {
 
     // Reaproveita uma análise equivalente já concluída (evita gasto de API), salvo pedido em contrário
     if (!force) {
-      const existing = await store.findLatestCompleted(title, kind, depth, hint);
+      const existing = await store.findLatestCompleted(title, kind, depth, hint, focus);
       if (existing) {
-        return NextResponse.json({ id: existing.id, reused: true });
+        return NextResponse.json({ id: existing.id, reused: true, queued: false, queuePosition: null });
       }
     }
 
     await reapOrphans();
-    if (activeRunCount() >= maxActiveRuns()) {
+    if (activeRunCount() >= maxActiveRuns() && queueLength() >= maxQueuedRuns()) {
       return NextResponse.json(
-        { error: `Já existem ${activeRunCount()} análises em andamento. Aguarde uma concluir.` },
+        { error: `Há ${activeRunCount()} análises em andamento e a fila está cheia. Aguarde uma concluir.` },
         { status: 429 }
       );
     }
 
-    const analysis = await startAnalysis({ title, hint, kind, depth });
-    return NextResponse.json({ id: analysis.id, reused: false }, { status: 201 });
+    const started = await startAnalysis({ title, hint, focus, kind, depth, agents, userSources: checked.sources });
+    return NextResponse.json(
+      {
+        id: started.row.id,
+        reused: false,
+        queued: started.queued,
+        queuePosition: started.queuePosition ?? queuePosition(started.row.id),
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error('[POST /api/analyses]', error);
     return NextResponse.json({ error: 'Falha ao iniciar a análise.' }, { status: 500 });
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const parsed = listQuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams));
+    if (!parsed.success) {
+      return NextResponse.json({ error: firstIssue(parsed.error) }, { status: 400 });
+    }
+    const { status, kind, limit } = parsed.data;
+
     await reapOrphans();
     const store = await getStore();
-    const rows = await store.list(30);
-    return NextResponse.json({ analyses: rows.map(toAnalysisSummaryDTO) });
+    const rows = await store.list({ limit, status, kind });
+    return NextResponse.json({
+      analyses: rows.map((row) => toAnalysisSummaryDTO(row, { queuePosition: queuePosition(row.id) })),
+      queue: { active: activeRunCount(), max: maxActiveRuns(), waiting: queueLength() },
+    });
   } catch (error) {
     console.error('[GET /api/analyses]', error);
     return NextResponse.json({ error: 'Falha ao carregar o histórico.' }, { status: 500 });

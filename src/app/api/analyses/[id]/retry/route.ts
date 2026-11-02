@@ -7,7 +7,7 @@ import { firstIssue, retrySchema } from '@/lib/anima/validation';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const STATUS = { not_found: 404, busy: 409, nothing: 400 } as const;
+const STATUS = { not_found: 404, busy: 409, nothing: 400, full: 429 } as const;
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!result.ok) {
       return NextResponse.json({ error: result.message }, { status: STATUS[result.code] });
     }
-    return NextResponse.json({ ok: true, message: result.message });
+    return NextResponse.json({ ok: true, message: result.message, queued: result.queued });
   } catch (error) {
     console.error('[POST /api/analyses/:id/retry]', error);
     return NextResponse.json({ error: 'Falha ao reexecutar.' }, { status: 500 });

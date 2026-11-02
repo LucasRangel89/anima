@@ -53,7 +53,10 @@ export function resolveProvider(env: NodeJS.ProcessEnv = process.env): Provider 
   return env.LLM_API_KEY ? 'openai' : 'zai';
 }
 
-export function getSystemStatus(env: NodeJS.ProcessEnv = process.env): SystemStatusDTO {
+/** Estado de configuração sem os dados de runtime (fila/fontes), que são agregados em `status.ts`. */
+export type BaseSystemStatus = Omit<SystemStatusDTO, 'sources' | 'queue'>;
+
+export function getSystemStatus(env: NodeJS.ProcessEnv = process.env): BaseSystemStatus {
   const provider = resolveProvider(env);
   const search: SystemStatusDTO['search'] =
     provider === 'mock' ? 'none' : env.TAVILY_API_KEY ? 'tavily' : provider === 'zai' ? 'zai' : 'wikipedia';

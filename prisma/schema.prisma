@@ -1,7 +1,7 @@
 // ANIMA — Analisador Narrativo Inteligente Multiagente
 // Prisma schema (SQLite)
 //
-// Alterações da v0.3 são aditivas (colunas novas com default/opcionais):
+// Todas as alterações desde a v0.2 são aditivas (colunas novas com default/opcionais):
 // bancos existentes podem ser atualizados com `npm run db:push` sem perda de dados.
 
 generator client {
@@ -18,14 +18,16 @@ model Analysis {
   id              String        @id @default(cuid())
   title           String
   hint            String? // dica de desambiguação informada pelo usuário (autor/ano/diretor)
+  focus           String? // recorte pedido (capítulo, temporada, personagem, aspecto)
   kind            String        @default("auto") // auto | book | film | series | game | theatre | comics | other
-  depth           String        @default("standard") // standard | deep
-  // researching | analyzing | synthesizing | completed | failed | interrupted
+  depth           String        @default("standard") // brief | standard | deep | exhaustive
+  // queued | researching | analyzing | synthesizing | completed | failed | interrupted
   status          String        @default("researching")
   research        String? // dossiê factual em Markdown (saída do Agente Pesquisador)
   // pending | running | done | failed
   researchStatus  String        @default("pending")
   sources         String? // JSON: fontes consultadas pelo pesquisador
+  userSources     String? // JSON: links e trechos enviados pelo usuário
   synthesis       String? // síntese integrada em Markdown (saída do Curador)
   synthesisStatus String        @default("pending")
   error           String?

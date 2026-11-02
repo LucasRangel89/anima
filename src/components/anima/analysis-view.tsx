@@ -3,15 +3,36 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, BookOpenText, ChevronsDownUp, ChevronsUpDown, Copy, Download, Printer, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BookOpenText, ChevronsDownUp, ChevronsUpDown, Copy, Download, Hourglass, Printer, RefreshCw, SlidersHorizontal, Sparkles, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AGENTS, CURATOR_META, RESEARCHER_META } from '@/lib/anima/agent-meta';
 import { buildReportMarkdown } from '@/lib/anima/export';
 import { formatClock, formatDate, formatDuration, slugify } from '@/lib/anima/format';
-import { DEPTH_LABELS, WORK_KIND_LABELS, isActiveStatus, type AgentKey, type AnalysisDTO } from '@/lib/anima/types';
+import {
+  DEPTH_LABELS,
+  RELIABILITY_LABELS,
+  SOURCE_KIND_LABELS,
+  SOURCE_ORIGIN_LABELS,
+  WORK_KIND_LABELS,
+  isActiveStatus,
+  type AgentKey,
+  type AnalysisDTO,
+} from '@/lib/anima/types';
 import { isBusy, useAnalysis } from '@/hooks/use-analysis';
 import { cn } from '@/lib/utils';
 import { SectionCard, StateIcon, type SectionState } from './section-card';
@@ -105,12 +126,47 @@ export function AnalysisView({ id }: { id: string }) {
     [id, refresh]
   );
 
+  const cancel = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/analyses/${id}/cancel`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return void toast.error(data.error ?? 'Não foi possível cancelar.');
+      toast.success(data.message ?? 'Análise cancelada.');
+      refresh();
+    } catch {
+      toast.error('Falha de conexão ao cancelar.');
+    }
+  }, [id, refresh]);
+
+  const adjust = useCallback(() => {
+    if (!analysis) return;
+    const lenses = analysis.results.filter((r) => r.status !== 'skipped').map((r) => r.agentKey);
+    const search = new URLSearchParams({
+      titulo: analysis.title,
+      ...(analysis.hint ? { dica: analysis.hint } : {}),
+      ...(analysis.focus ? { recorte: analysis.focus } : {}),
+      meio: analysis.kind,
+      profundidade: analysis.depth,
+      ...(lenses.length > 0 && lenses.length < AGENTS.length ? { lentes: lenses.join(',') } : {}),
+    });
+    router.push(`/?${search.toString()}`);
+  }, [analysis, router]);
+
   const redo = useCallback(async () => {
     if (!analysis) return;
+    const lenses = analysis.results.filter((r) => r.status !== 'skipped').map((r) => r.agentKey);
     const res = await fetch('/api/analyses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: analysis.title, hint: analysis.hint, kind: analysis.kind, depth: analysis.depth, force: true }),
+      body: JSON.stringify({
+        title: analysis.title,
+        hint: analysis.hint,
+        focus: analysis.focus,
+        kind: analysis.kind,
+        depth: analysis.depth,
+        agents: lenses.length > 0 && lenses.length < AGENTS.length ? lenses : undefined,
+        force: true,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return void toast.error(data.error ?? 'Não foi possível refazer a análise.');
@@ -148,14 +204,21 @@ export function AnalysisView({ id }: { id: string }) {
   const a = analysis;
   const busy = isBusy(a);
   const failedAgents = a.results.filter((r) => r.status === 'failed');
+  const skippedAgents = a.results.filter((r) => r.status === 'skipped');
+  const selectedAgents = a.results.filter((r) => r.status !== 'skipped').length;
   const doneAgents = a.results.filter((r) => r.status === 'done').length;
-  const steps = (a.researchStatus === 'done' ? 1 : 0) + doneAgents + (a.synthesisStatus === 'done' ? 1 : 0);
-  const totalSteps = 2 + AGENTS.length;
-  const phase =
-    a.status === 'researching' ? 'Pesquisador compilando o dossiê'
-    : a.status === 'analyzing' ? `Especialistas analisando (${doneAgents}/${AGENTS.length})`
-    : a.status === 'synthesizing' ? 'Curador redigindo a síntese'
-    : '';
+  const queued = a.status === 'queued';
+  const phase = queued
+    ? a.queuePosition
+      ? `Na fila — posição ${a.queuePosition}`
+      : 'Na fila'
+    : a.status === 'researching'
+      ? 'Pesquisador compilando o dossiê'
+      : a.status === 'analyzing'
+        ? `Especialistas analisando (${doneAgents}/${selectedAgents})`
+        : a.status === 'synthesizing'
+          ? 'Curador redigindo a síntese'
+          : '';
   const since = Date.parse(a.createdAt) > startedAt - 30 * 60_000 && a.status !== 'completed' ? Math.max(Date.parse(a.createdAt), startedAt - 30 * 60_000) : startedAt;
 
   const markdown = () => buildReportMarkdown(a);
@@ -192,11 +255,17 @@ export function AnalysisView({ id }: { id: string }) {
       <header className="mb-6">
         <h1 className="font-serif text-3xl font-semibold leading-tight tracking-tight text-balance sm:text-4xl">{a.title}</h1>
         {a.hint && <p className="mt-1 text-muted-foreground">{a.hint}</p>}
+        {a.focus && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Recorte:</span> {a.focus}
+          </p>
+        )}
         <p className="mt-2 text-sm text-muted-foreground">{meta.join(' · ')}</p>
         <div className="mt-4 flex flex-wrap gap-2 print:hidden">
           <Button size="sm" variant="outline" onClick={download}><Download aria-hidden /> Baixar .md</Button>
           <Button size="sm" variant="outline" onClick={() => void copy()}><Copy aria-hidden /> Copiar</Button>
           <Button size="sm" variant="outline" onClick={() => window.print()}><Printer aria-hidden /> Imprimir / PDF</Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={adjust}><SlidersHorizontal aria-hidden /> Ajustar e rodar de novo</Button>
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void redo()}><RefreshCw aria-hidden /> Refazer do zero</Button>
           <Button size="sm" variant="ghost" onClick={() => sections.forEach((s) => setOpen(s.id, !allOpen))}>
             {allOpen ? <ChevronsDownUp aria-hidden /> : <ChevronsUpDown aria-hidden />} {allOpen ? 'Recolher tudo' : 'Expandir tudo'}
@@ -208,13 +277,42 @@ export function AnalysisView({ id }: { id: string }) {
         <div className="mb-6 rounded-xl border border-primary/30 bg-card p-4 shadow-sm print:hidden" role="status" aria-live="polite">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="flex items-center gap-2 text-sm font-medium">
-              <Sparkles className="h-4 w-4 text-primary" aria-hidden /> {phase || 'Retomando…'}
+              {queued ? (
+                <Hourglass className="h-4 w-4 text-primary" aria-hidden />
+              ) : (
+                <Sparkles className="h-4 w-4 text-primary" aria-hidden />
+              )}
+              {phase || 'Retomando…'}
             </p>
-            <Elapsed since={since} />
+            <div className="flex items-center gap-3">
+              {!queued && <Elapsed since={since} />}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive">
+                    <XCircle aria-hidden /> Cancelar
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Cancelar esta análise?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      As chamadas em curso serão interrompidas. O que já foi escrito fica salvo e pode ser retomado
+                      depois — mas o tempo e o custo de API já gastos não voltam.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Continuar</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => void cancel()}>Cancelar análise</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
-          <Progress value={Math.round((steps / totalSteps) * 100)} className="mt-3 h-2" aria-label="Progresso da análise" />
+          <Progress value={a.progress} className="mt-3 h-2" aria-label="Progresso da análise" />
           <p className="mt-2 text-sm text-muted-foreground">
-            {steps} de {totalSteps} etapas concluídas. Você pode ler as seções prontas enquanto as demais são escritas.
+            {queued
+              ? 'Ela começa sozinha assim que abrir uma vaga. Você pode fechar esta página: o pedido fica no servidor.'
+              : `${a.progress}% concluído · ${doneAgents} de ${selectedAgents} lentes prontas. Você pode ler as seções prontas enquanto as demais são escritas.`}
           </p>
         </div>
       )}
@@ -223,6 +321,22 @@ export function AnalysisView({ id }: { id: string }) {
         <div role="alert" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm print:hidden">
           <p className="flex items-start gap-2 text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> {a.error ?? 'A análise não foi concluída.'}</p>
           <Button size="sm" onClick={() => void retry()}><RefreshCw aria-hidden /> {a.status === 'interrupted' ? 'Retomar' : 'Tentar novamente'}</Button>
+        </div>
+      )}
+
+      {!busy && skippedAgents.length > 0 && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/40 p-4 text-sm print:hidden">
+          <p className="text-muted-foreground">
+            {skippedAgents.length} lente(s) não fazem parte desta análise (não foram selecionadas ou não existiam
+            quando ela foi gerada).
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void retry({ agentKeys: skippedAgents.map((r) => r.agentKey) })}
+          >
+            <RefreshCw aria-hidden /> Gerar as {skippedAgents.length} que faltam
+          </Button>
         </div>
       )}
 
@@ -276,7 +390,7 @@ export function AnalysisView({ id }: { id: string }) {
           <SectionCard
             id="sintese"
             title={CURATOR_META.name}
-            subtitle="Síntese integrada das oito análises"
+            subtitle={`Síntese integrada das ${selectedAgents} lentes desta análise`}
             icon={CURATOR_META.icon}
             color={CURATOR_META.color}
             state={sections[0].state}
@@ -308,12 +422,32 @@ export function AnalysisView({ id }: { id: string }) {
             footer={
               a.sources.length > 0 ? (
                 <div className="mt-6 border-t pt-4">
-                  <h3 className="mb-2 text-sm font-semibold">Fontes consultadas</h3>
-                  <ul className="space-y-1 text-sm">
+                  <h3 className="mb-1 text-sm font-semibold">Fontes consultadas</h3>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    O pesquisador recebeu cada fonte com o tipo e a confiabilidade indicados abaixo; dados
+                    catalográficos valem como fato, críticas valem como posição de quem as assina.
+                  </p>
+                  <ul className="space-y-2 text-sm">
                     {a.sources.map((s) => (
-                      <li key={s.id}>
-                        <span className="text-muted-foreground">[{s.id}]</span>{' '}
-                        <a href={s.url} target="_blank" rel="noopener noreferrer nofollow" className="text-primary underline underline-offset-2">{s.title}</a>
+                      <li key={s.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <span className="font-mono text-xs text-muted-foreground">[{s.id}]</span>
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer nofollow"
+                          className="text-primary underline underline-offset-2"
+                        >
+                          {s.title}
+                        </a>
+                        <Badge variant="outline" className="px-1.5 py-0 text-[11px] font-normal">
+                          {s.kind ? SOURCE_KIND_LABELS[s.kind] : SOURCE_ORIGIN_LABELS[s.origin]}
+                        </Badge>
+                        {s.author && <span className="text-xs text-muted-foreground">{s.author}</span>}
+                        {s.year && <span className="text-xs text-muted-foreground">{s.year}</span>}
+                        {s.reliability && (
+                          <span className="text-xs text-muted-foreground">· {RELIABILITY_LABELS[s.reliability]}</span>
+                        )}
+                        {s.note && <span className="text-xs text-muted-foreground">· {s.note}</span>}
                       </li>
                     ))}
                   </ul>
@@ -338,7 +472,7 @@ export function AnalysisView({ id }: { id: string }) {
                 durationMs={r?.durationMs ?? null}
                 open={isOpen(agent.key)}
                 onToggle={() => setOpen(agent.key, !isOpen(agent.key))}
-                emptyHint={r?.status === 'skipped' ? 'Este especialista foi adicionado depois que esta análise foi gerada.' : undefined}
+                emptyHint={r?.status === 'skipped' ? 'Esta lente não faz parte da análise (não foi selecionada ou não existia quando ela foi gerada).' : undefined}
                 {...agentAction(agent.key)}
               />
             );
