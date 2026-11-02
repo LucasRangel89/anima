@@ -248,13 +248,27 @@ O modelo precisa de contexto de pelo menos ~32k tokens (a síntese recebe as an�
 ## Qualidade
 
 ```bash
-npm test          # 47 testes (node:test)
+npm test          # 74 testes (node:test)
 npm run typecheck # tsc --noEmit
 npm run lint      # eslint
 npm run check     # os três em sequência
+npm run doctor    # diagnóstico do ambiente (banco, modelo, fontes, porta)
+npm run audit:ui  # contraste WCAG do tema + estrutura das páginas
 ```
 
-Cobertura de testes: pipeline completo (mock), fila, cancelamento, retomada, falhas parciais, reaproveitamento, seleção de lentes, recorte nos prompts, calibragem de profundidade, validação de entrada, SSRF/HTML, parsing de provedores, cálculo de progresso e exportação.
+Cobertura de testes: pipeline completo (mock), fila, cancelamento, retomada, falhas parciais, reaproveitamento, seleção de lentes, recorte nos prompts, calibragem de profundidade, validação de entrada, SSRF/HTML, parsing de provedores, cálculo de progresso e exportação. Além disso:
+
+- **`tests/search-network.test.ts`** exercita `gatherSources` contra respostas reais gravadas dos quatro provedores abertos (extrato longo, provedor fora do ar, página de desambiguação, orçamento por profundidade) sem tocar a rede.
+- **`tests/llm-http.test.ts`** sobe um servidor HTTP local compatível com OpenAI e confere o que o cliente realmente envia (modelo, mensagens, `max_tokens`, autenticação), `Retry-After`, erros fatais × recuperáveis e resposta vazia.
+- **`tests/store-contract.test.ts`** roda a mesma suíte de contrato contra o store de memória **e** contra o Prisma. Na memória, sempre. No Prisma, quando `DATABASE_URL` e o client gerado estiverem disponíveis — caso contrário a suíte do banco é **pulada com motivo**, nunca passada em silêncio.
+
+### `npm run doctor`
+
+Verifica em segundos as quatro coisas que mais quebram uma instalação nova: o client do Prisma e o arquivo SQLite, o provedor de LLM (com uma chamada real de 8 tokens), as fontes abertas e se a porta 3000 está livre. Cada item diz o que fazer quando falha. Use `--offline` para pular as checagens de rede.
+
+### `npm run audit:ui`
+
+Calcula o contraste WCAG 2.1 dos pares de cor reais do tema (converte o `oklch` de `globals.css` para sRGB), em claro e escuro, e analisa o HTML servido: `<h1>` único, hierarquia de títulos, landmarks, nomes acessíveis de botões/links e rótulos de campos. Não substitui um teste visual: layout, espaçamento e sobreposição precisam de navegador.
 
 > `npm run build` executa `prisma generate` antes do build; ele baixa engines do Prisma na primeira vez (requer rede).
 > O `typecheck` também depende desse client: rode `npm run db:generate` antes de `npm run check` numa máquina nova.

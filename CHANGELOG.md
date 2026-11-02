@@ -2,6 +2,22 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); versionamento semântico enquanto o projeto estiver em `0.x`.
 
+## [Não publicado]
+
+Foco: **verificação real (Fase 0)**.
+
+### Adicionado
+
+- **`npm run doctor`**: diagnóstico do ambiente em segundos — client do Prisma e arquivo SQLite, provedor de LLM (com uma chamada real de 8 tokens), fontes abertas e porta 3000. Cada falha traz a próxima ação; `--offline` pula a rede.
+- **`npm run audit:ui`**: contraste WCAG 2.1 dos pares de cor reais do tema (`oklch` → sRGB), em claro e escuro, mais auditoria do HTML servido (`<h1>` único, hierarquia de títulos, landmarks, nomes acessíveis, rótulos de campo).
+- **`tests/search-network.test.ts`**: `gatherSources` contra respostas gravadas dos quatro provedores abertos, com orçamento por profundidade, provedor fora do ar e desambiguação.
+- **`tests/llm-http.test.ts`**: cliente OpenAI-compatível contra um servidor HTTP local — corpo enviado, autenticação, `max_tokens`, `Retry-After`, erros fatais × recuperáveis, resposta vazia, aborto e URL base com prefixo.
+- **`tests/store-contract.test.ts`**: contrato único de `AnalysisStore` exercitado na memória e, quando o banco está acessível, no Prisma; sem banco, a suíte do Prisma é pulada com motivo explícito.
+
+### Alterado
+
+- README: seções de qualidade, `doctor` e `audit:ui`.
+
 ## [0.4.0] — 2026-11-02
 
 Foco: **fontes, escopo, profundidade e fluxo**.
