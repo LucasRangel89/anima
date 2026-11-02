@@ -197,3 +197,40 @@ referências conferíveis, rodada contra um modelo real, fora do `npm test`.
   rodar com a chave do usuário. O que está provado é o encanamento (mock) e a régua (testes).
 - **Consulta ao vivo à Open Library/Crossref**: a rede do `bash` bloqueia os dois domínios. A verificação foi
   validada com `fetch` falso e a **forma** das respostas foi confirmada por requisição real fora do processo.
+
+---
+
+## Fase 3, item 1 — exportar para o Obsidian
+
+**Plano (5 linhas, antes de começar).** (1) reaproveitar `export.ts` em vez de um segundo exportador;
+(2) cofre = índice + dossiê + uma nota por lente, com `[[wikilinks]]` e frontmatter; (3) nomes seguros e
+estáveis; (4) **nada de dependência nova** — um zip "store" no próprio projeto; (5) testes de estrutura,
+de YAML e de validade do zip.
+
+**O que foi construído**
+
+- **`buildObsidianNotes`** (`src/lib/anima/export.ts`): índice com síntese e fontes, nota do dossiê e uma nota
+  por lente **concluída** (falhas e puladas não viram nota nem link). Frontmatter com `tags` (obra, lente),
+  `obra`, `tipo`, `lente`, `papel`, `profundidade`, `data` e `modelo` — omitido quando é mock.
+- **`buildObsidianVault`**: devolve o nome do arquivo e os bytes do `.zip`, já com todas as notas em UTF-8.
+- **`src/lib/anima/zip.ts`**: escritor de zip sem dependência (método *store*, cabeçalhos local e central,
+  CRC-32, flag UTF-8, data fixa para a saída ser determinística). Textos são pequenos; comprimir custaria uma
+  biblioteca e não economizaria nada relevante.
+- **Interface**: botão **Para o Obsidian** ao lado de "Baixar .md", com aviso de quantas notas foram geradas e
+  mensagem de erro apontando o caminho alternativo.
+
+**Verificado**
+
+- **12 testes novos** (`tests/export-obsidian.test.ts`): saneamento de nomes (barras, dois-pontos, `#`, `[]`,
+  pontos nas pontas, limite de 80), tags sem acento, composição do cofre (índice + dossiê + 8 lentes),
+  ausência de notas para lentes falhas/puladas, todos os links do índice resolvendo para uma nota existente,
+  frontmatter em todas as notas, YAML com título contendo aspas/barra, mock fora do campo `modelo`, CRC-32
+  contra o valor de referência (`123456789` → `0xCBF43926`) e leitura de volta de cada entrada do zip.
+- **Zip validado por programa externo**: `python3 zipfile` (`testzip()` sem erros, 10 entradas, flag UTF-8,
+  método store, conteúdo idêntico byte a byte ao gerado) e `unzip -t` ("No errors detected").
+- Suíte completa: **137 testes (136 passam, 1 pulado — Prisma local)**; typecheck e lint limpos.
+
+**Não verificado**
+
+- Observação do cofre aberto no aplicativo Obsidian: não há Obsidian neste ambiente. O que dá para provar
+  sem ele — estrutura, links, frontmatter e validade do arquivo — está provado.

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, BookOpenText, ChevronsDownUp, ChevronsUpDown, Copy, Download, Hourglass, Printer, RefreshCw, SlidersHorizontal, Sparkles, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BookOpenText, ChevronsDownUp, ChevronsUpDown, Copy, Download, FolderArchive, Hourglass, Printer, RefreshCw, SlidersHorizontal, Sparkles, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AGENTS, CURATOR_META, RESEARCHER_META } from '@/lib/anima/agent-meta';
-import { buildReportMarkdown } from '@/lib/anima/export';
+import { buildObsidianVault, buildReportMarkdown } from '@/lib/anima/export';
 import { formatClock, formatDate, formatDuration, slugify } from '@/lib/anima/format';
 import {
   DEPTH_LABELS,
@@ -238,6 +238,20 @@ export function AnalysisView({ id }: { id: string }) {
     link.click();
     URL.revokeObjectURL(url);
   };
+  const downloadObsidian = () => {
+    try {
+      const vault = buildObsidianVault(a);
+      const url = URL.createObjectURL(new Blob([vault.bytes], { type: 'application/zip' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = vault.filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Cofre com ${vault.notes.length} notas. Descompacte dentro do seu cofre.`);
+    } catch {
+      toast.error('Não foi possível montar o cofre. Tente “Baixar .md”.');
+    }
+  };
 
   const meta = [WORK_KIND_LABELS[a.kind], DEPTH_LABELS[a.depth].label, a.model && a.model !== 'mock' ? a.model : a.model === 'mock' ? 'demonstração' : null, formatDate(a.createdAt), formatDuration(a.durationMs)].filter(Boolean);
 
@@ -263,6 +277,7 @@ export function AnalysisView({ id }: { id: string }) {
         <p className="mt-2 text-sm text-muted-foreground">{meta.join(' · ')}</p>
         <div className="mt-4 flex flex-wrap gap-2 print:hidden">
           <Button size="sm" variant="outline" onClick={download}><Download aria-hidden /> Baixar .md</Button>
+          <Button size="sm" variant="outline" onClick={downloadObsidian}><FolderArchive aria-hidden /> Para o Obsidian</Button>
           <Button size="sm" variant="outline" onClick={() => void copy()}><Copy aria-hidden /> Copiar</Button>
           <Button size="sm" variant="outline" onClick={() => window.print()}><Printer aria-hidden /> Imprimir / PDF</Button>
           <Button size="sm" variant="outline" disabled={busy} onClick={adjust}><SlidersHorizontal aria-hidden /> Ajustar e rodar de novo</Button>
